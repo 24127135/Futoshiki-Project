@@ -1,0 +1,16 @@
+# N
+4
+# Grid (0 = empty)
+0 0 3 0
+0 2 0 0
+0 0 0 1
+4 0 0 0
+# Horizontal constraints (1: left<right, -1: left>right)
+1 0 -1
+0 1 0
+-1 0 1
+0 -1 0
+# Vertical constraints (1: top<bottom, -1: top>bottom)
+0 1 0 -1
+1 0 -1 0
+0 -1 1 0
