@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from .io_parser import Puzzle
-from .state import FutoshikiState
+from ..io_parser import Puzzle
+from ..state import FutoshikiState
 
 
 def _h_symbol(sign: int) -> str:
