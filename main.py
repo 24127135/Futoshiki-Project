@@ -1,19 +1,15 @@
 import sys
 import os
-# Chỉ đường cho Python biết thư mục 'src' nằm ở đâu
 sys.path.append(os.path.join(os.path.dirname(__file__), "src"))
 
 import argparse
 import time
 from pathlib import Path
 
-# Import hàm đọc file của bạn
 from futoshiki.io_parser import parse_puzzle_file
-# Import thuật toán suy diễn (đảm bảo file solver_deductive.py đã được bạn bỏ vào folder src/futoshiki/)
 from futoshiki.solver_deductive import solve_deductive
 
 def print_solution(N, solution, h_con, v_con):
-    """Hàm in bảng console đã được căn lề chuẩn"""
     for i in range(N):
         row_str = ""
         for j in range(N):
@@ -42,13 +38,11 @@ def print_solution(N, solution, h_con, v_con):
 
 
 def main() -> None:
-    # 1. Thiết lập đọc Argument từ Terminal (Giống parse_checker.py)
     parser = argparse.ArgumentParser(description="Run Deductive Solver on a Futoshiki puzzle file")
     parser.add_argument("input_file", type=Path, help="Path to input-XX.txt")
     parser.add_argument("--debug", action="store_true", help="Print step-by-step reasoning")
     args = parser.parse_args()
 
-    # 2. Dùng io_parser của bạn để đọc file txt
     try:
         puzzle = parse_puzzle_file(args.input_file)
     except Exception as e:
@@ -75,7 +69,6 @@ def main() -> None:
     print("\n[Result]:")
     print_solution(N, res, h_con, v_con)
 
-    # 4. Đánh giá kết quả
     unsolved = sum(1 for i in range(N) for j in range(N) if res[i][j] == 0)
 
     print("\n" + "=" * 65)

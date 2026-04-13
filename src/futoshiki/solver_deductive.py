@@ -1,9 +1,6 @@
 import time
 
-
-# ==========================================
 # PART 1: DATA STRUCTURES & UNIFICATION
-# ==========================================
 
 class Variable:
     def __init__(self, name): self.name = name
@@ -100,9 +97,8 @@ def substitute(pred, theta):
     return Predicate(pred.name, *new_args)
 
 
-# ==========================================
+
 # PART 2: BACKWARD CHAINING ENGINE (WITH CYCLE DETECTION)
-# ==========================================
 
 _counter = [0]
 
@@ -220,9 +216,8 @@ def build_kb(N, grid, h_con, v_con):
     return kb
 
 
-# ==========================================
 # PART 4: UNIQUENESS FILTER & MAIN SOLVER
-# ==========================================
+
 
 def filter_by_uniqueness(candidates, i, j, solution, N):
     used_in_row = set(solution[i - 1][c] for c in range(N) if solution[i - 1][c] != 0)
