@@ -1,19 +1,25 @@
 # Futoshiki Logic Solver
 
-This workspace contains the Phase 1 starter code for a Futoshiki logic solver.
+This repository now uses a single Python source root: `src/`.
 
 ## Project Structure
 
-- `src/parse_checker.py` - Phase 1 checker / entry point
-- `src/futoshiki/io_parser.py` - input parser
-- `src/futoshiki/state.py` - domain-based puzzle state
-- `src/futoshiki/util/pretty.py` - puzzle and domain rendering
-- `inputs/` - sample test cases (`input-01.txt` to `input-10.txt`)
+- `main.py` - GUI launcher
+- `gui/` - Tkinter UI modules
+- `src/parse_checker.py` - parser/domain checker entry point
+- `src/futoshiki/` - parser, state, and rendering package
+- `src/brute_force.py` - brute-force baseline solver
+- `src/backtracking.py` - MRV backtracking solver
+- `src/knowledge_base.py` - FOL to CNF grounding logic
+- `src/export_kb_outputs.py` - writes KB conversion outputs into `Output/`
+- `inputs/` - puzzle inputs (`input-4x4-01.txt` to `input-9x9-10.txt`)
+- `solutions/` - reference solutions for the same set
+- `Output/` - generated Knowledge Base conversion outputs
 
 ## Requirements
 
 - Python 3.7 or later
-- No external packages are required for the current Phase 1 code
+- No external packages are required
 
 ## Input Format
 
@@ -32,32 +38,29 @@ Each input file uses this structure:
    - `-1` means top `>` bottom
    - `0` means no constraint
 
-## Run the Checker
+## How To Test
+
+From project root:
+
+```powershell
+# 1) Parse + domain checker smoke test
+python src/parse_checker.py inputs/input-4x4-01.txt
+
+# 2) Solver runs on a real input file
+python src/brute_force.py inputs/input-4x4-01.txt
+python src/backtracking.py inputs/input-4x4-01.txt
+
+# 3) Launch GUI
+python main.py
+```
+
+## Generate KB Outputs
 
 From the project root:
 
 ```powershell
-python src/parse_checker.py inputs/input-01.txt
+python src/export_kb_outputs.py
 ```
 
-## What the Checker Prints
-
-The checker loads the puzzle, builds the initial domains, and prints:
-
-- the puzzle grid with inequality signs
-- the initial domain table
-
-In the domain table:
-- `-` means the cell still has the full initial domain `1..N`
-- `[2]`, `[1, 3]`, etc. mean the domain has been reduced
-
-## Current Phase 1 Status
-
-Completed:
-- input parsing
-- initial domain generation
-- puzzle rendering
-- 10 validated test cases
-
-Next phases can build on this foundation with domain pruning, forward chaining, backward chaining, and search.
+This creates one output text file per input under `Output/` with KB summary and clause dumps.
 
