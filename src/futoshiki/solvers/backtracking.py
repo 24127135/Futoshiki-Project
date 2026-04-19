@@ -1,10 +1,12 @@
+from __future__ import annotations
+
 import argparse
 from pathlib import Path
 from time import perf_counter
 from typing import Dict, List, Optional, Tuple
 
-from brute_force import is_valid
-from futoshiki.io_parser import parse_puzzle_file
+from ..io_parser import parse_puzzle_file
+from .brute_force import is_valid
 
 
 _MRV_H_CONSTRAINTS: Optional[List[List[int]]] = None
@@ -19,10 +21,6 @@ def _get_candidates(
     v_constraints: List[List[int]],
     N: int,
 ) -> List[int]:
-    """
-    Return values 1..N that pass is_valid for cell (r,c).
-    This is the only "smart" part of backtracking vs brute force.
-    """
     if grid[r][c] != 0:
         return []
 
@@ -34,11 +32,6 @@ def _get_candidates(
 
 
 def _select_cell(grid: List[List[int]], N: int) -> Optional[Tuple[int, int]]:
-    """
-    MRV heuristic: among all empty cells, return the one with the
-    fewest valid candidates. Return None if no empty cells.
-    If two cells have equal candidates, prefer lower row then lower col.
-    """
     h_constraints = _MRV_H_CONSTRAINTS
     v_constraints = _MRV_V_CONSTRAINTS
 
@@ -72,27 +65,6 @@ def backtracking_solve(
     N: int,
     stats: Dict[str, int],
 ) -> Optional[List[List[int]]]:
-    """
-    Backtracking solver WITH MRV cell selection and candidate filtering.
-
-    stats dict:
-      'calls'     : recursive calls
-      'backtracks': times a cell was reset to 0
-
-    Algorithm:
-      1. cell = _select_cell(grid, N)
-      2. If None: return grid  (solved)
-      3. r, c = cell
-      4. candidates = _get_candidates(grid, r, c, h, v_c, N)
-      5. For v in candidates:
-           grid[r][c] = v
-           stats['calls'] += 1
-           result = backtracking_solve(...)
-           if result: return result
-           grid[r][c] = 0
-           stats['backtracks'] += 1
-      6. Return None
-    """
     global _MRV_H_CONSTRAINTS
     global _MRV_V_CONSTRAINTS
 
@@ -129,11 +101,6 @@ def backtracking_gen(
     v_constraints: List[List[int]],
     N: int,
 ):
-    """
-    Generator version for GUI animation.
-    Yield ('try', r, c, v), ('backtrack', r, c), ('solved', grid).
-    Same as brute_force_gen but uses MRV selection and candidate filtering.
-    """
     global _MRV_H_CONSTRAINTS
     global _MRV_V_CONSTRAINTS
 
@@ -169,7 +136,7 @@ def backtracking_gen(
     yield from _solve()
 
 
-if __name__ == "__main__":
+def main() -> None:
     parser = argparse.ArgumentParser(description="Solve a Futoshiki puzzle using MRV backtracking")
     parser.add_argument("input_file", type=Path, help="Path to input-*.txt puzzle file")
     args = parser.parse_args()
@@ -197,3 +164,7 @@ if __name__ == "__main__":
     print(f"time={elapsed:.3f}s | calls={stats['calls']} | backtracks={stats['backtracks']}")
     for row in solution:
         print(" ".join(str(v) for v in row))
+
+
+if __name__ == "__main__":
+    main()

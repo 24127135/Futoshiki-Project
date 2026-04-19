@@ -8,8 +8,8 @@ from collections.abc import Callable, Iterator
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from backtracking import backtracking_gen
-from brute_force import brute_force_gen
+from futoshiki.solvers.backtracking import backtracking_gen
+from futoshiki.solvers.brute_force import brute_force_gen
 from .solver_generators import SolverEvent
 
 
@@ -20,7 +20,7 @@ SOLVER_GENERATORS = {
 
 
 def get_kb_summary(N, grid, h_constraints, v_constraints) -> str:
-    from knowledge_base import KnowledgeBase
+    from futoshiki.knowledge_base import KnowledgeBase
 
     kb = KnowledgeBase(N)
     kb.build_full_kb(grid, h_constraints, v_constraints)

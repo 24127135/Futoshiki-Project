@@ -2,10 +2,16 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import sys
 from typing import Optional
 
+if __package__ in (None, ""):
+    # When run as: python src/tools/export_kb_outputs.py
+    # add src/ so project modules are importable.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from futoshiki.io_parser import parse_puzzle_file
-from knowledge_base import KnowledgeBase
+from futoshiki.knowledge_base import KnowledgeBase
 
 
 def _render_clause(clause: list[str]) -> str:
