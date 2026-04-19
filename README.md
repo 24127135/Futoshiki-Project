@@ -4,14 +4,17 @@ This repository now uses a single Python source root: `src/`.
 
 ## Project Structure
 
-- `main.py` - GUI launcher
 - `gui/` - Tkinter UI modules
-- `src/parse_checker.py` - parser/domain checker entry point
-- `src/futoshiki/` - parser, state, and rendering package
-- `src/brute_force.py` - brute-force baseline solver
-- `src/backtracking.py` - MRV backtracking solver
-- `src/knowledge_base.py` - FOL to CNF grounding logic
-- `src/export_kb_outputs.py` - writes KB conversion outputs into `Output/`
+- `src/tools/parse_checker.py` - parse-only checker entry point
+- `src/tools/forward_pruning_report.py` - Single-input forward-pruning report
+- `src/tools/forward_pruning_smoke.py` - Batch smoke test for forward-pruning over multiple inputs
+- `src/tools/brute_force.py` - brute-force solver CLI
+- `src/tools/backtracking.py` - MRV backtracking solver CLI
+- `src/tools/export_kb_outputs.py` - Knowledge Base export CLI
+- `src/tools/gui_launcher.py` - GUI launcher
+- `src/futoshiki/` - parser, state, rendering, and solver packages
+- `src/futoshiki/solvers/` - shared solver implementations (forward chaining, brute force, backtracking)
+- `src/futoshiki/knowledge_base.py` - FOL to CNF grounding logic
 - `inputs/` - puzzle inputs (`input-4x4-01.txt` to `input-9x9-10.txt`)
 - `solutions/` - reference solutions for the same set
 - `Output/` - generated Knowledge Base conversion outputs
@@ -43,15 +46,28 @@ Each input file uses this structure:
 From project root:
 
 ```powershell
-# 1) Parse + domain checker smoke test
-python src/parse_checker.py inputs/input-4x4-01.txt
+# 1) Parse-only checker smoke test
+python src/tools/parse_checker.py inputs/input-4x4-01.txt
 
-# 2) Solver runs on a real input file
-python src/brute_force.py inputs/input-4x4-01.txt
-python src/backtracking.py inputs/input-4x4-01.txt
+# 2) Forward-pruning report for one puzzle
+python src/tools/forward_pruning_report.py inputs/input-4x4-01.txt
+python src/tools/forward_pruning_report.py inputs/input-4x4-01.txt --verbose
 
-# 3) Launch GUI
-python main.py
+# 2b) Batch smoke test for all inputs
+python src/tools/forward_pruning_smoke.py
+python src/tools/forward_pruning_smoke.py --strict
+
+# 3) Solver runs on a real input file
+python src/tools/brute_force.py inputs/input-4x4-01.txt
+python src/tools/backtracking.py inputs/input-4x4-01.txt
+
+#   The solver implementations live in `src/futoshiki/solvers/`
+
+# 4) Export KB outputs
+python src/tools/export_kb_outputs.py
+
+# 5) Launch GUI
+python src/tools/gui_launcher.py
 ```
 
 ## Generate KB Outputs
@@ -59,8 +75,15 @@ python main.py
 From the project root:
 
 ```powershell
-python src/export_kb_outputs.py
+python src/tools/export_kb_outputs.py
 ```
 
 This creates one output text file per input under `Output/` with KB summary and clause dumps.
+
+## Notes on Forward Pruning Results
+
+- `forward_pruning_report.py` prints summary lines by default to keep terminal output small.
+- Use `--verbose` when you need full grid and domain dumps.
+- A `FAIL` in `forward_pruning_smoke.py` means the pruning-only pass did not fully solve that puzzle (`Solved=False`, `Inconsistent=False`), not that the program crashed.
+- Use `src/tools/backtracking.py` for complete solving on harder 6x6+ inputs.
 
