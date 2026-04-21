@@ -24,6 +24,10 @@ def _prune_row_column(state: FutoshikiState) -> tuple[bool, bool]:
     changed = False
 
     for i in range(state.n):
+        fixed_vals = [state.domains[i][j][0] for j in range(state.n) if len(state.domains[i][j]) == 1]
+        if len(fixed_vals) != len(set(fixed_vals)):
+            return changed, True
+
         fixed = {state.domains[i][j][0] for j in range(state.n) if len(state.domains[i][j]) == 1}
         for j in range(state.n):
             if len(state.domains[i][j]) == 1:
@@ -36,6 +40,10 @@ def _prune_row_column(state: FutoshikiState) -> tuple[bool, bool]:
                 return changed, True
 
     for j in range(state.n):
+        fixed_vals = [state.domains[i][j][0] for i in range(state.n) if len(state.domains[i][j]) == 1]
+        if len(fixed_vals) != len(set(fixed_vals)):
+            return changed, True
+
         fixed = {state.domains[i][j][0] for i in range(state.n) if len(state.domains[i][j]) == 1}
         for i in range(state.n):
             if len(state.domains[i][j]) == 1:
@@ -46,6 +54,34 @@ def _prune_row_column(state: FutoshikiState) -> tuple[bool, bool]:
                 changed = True
             if not state.domains[i][j]:
                 return changed, True
+
+    return changed, False
+
+
+def _assign_hidden_singles(state: FutoshikiState) -> tuple[bool, bool]:
+    changed = False
+
+    for i in range(state.n):
+        for v in range(1, state.n + 1):
+            positions = [j for j in range(state.n) if v in state.domains[i][j]]
+            if not positions:
+                return changed, True
+            if len(positions) == 1:
+                j = positions[0]
+                if state.domains[i][j] != [v]:
+                    state.domains[i][j] = [v]
+                    changed = True
+
+    for j in range(state.n):
+        for v in range(1, state.n + 1):
+            positions = [i for i in range(state.n) if v in state.domains[i][j]]
+            if not positions:
+                return changed, True
+            if len(positions) == 1:
+                i = positions[0]
+                if state.domains[i][j] != [v]:
+                    state.domains[i][j] = [v]
+                    changed = True
 
     return changed, False
 
@@ -137,6 +173,16 @@ def run_forward_chaining(puzzle: Puzzle) -> ForwardChainingResult:
                 iterations=iterations,
             )
         any_change = any_change or ineq_changed
+
+        hidden_changed, inconsistent = _assign_hidden_singles(state)
+        if inconsistent:
+            return ForwardChainingResult(
+                state=state,
+                solved=False,
+                inconsistent=True,
+                iterations=iterations,
+            )
+        any_change = any_change or hidden_changed
 
         if _is_solved(state):
             return ForwardChainingResult(

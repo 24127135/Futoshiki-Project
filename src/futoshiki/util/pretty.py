@@ -14,9 +14,9 @@ def _h_symbol(sign: int) -> str:
 
 def _v_symbol(sign: int) -> str:
     if sign == 1:
-        return "v"
-    if sign == -1:
         return "^"
+    if sign == -1:
+        return "v"
     return " "
 
 

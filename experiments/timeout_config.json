@@ -1,0 +1,9 @@
+{
+  "default": 10,
+  "algorithms": {
+    "forward-chaining": 10,
+    "backtracking": 10,
+    "brute-force": 10,
+    "astar": 10
+  }
+}

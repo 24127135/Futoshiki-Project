@@ -9,12 +9,12 @@ if __package__ in (None, ""):
     # add src/ so `futoshiki` package is importable.
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from futoshiki.solvers.backward_chaining import solve_deductive
+from futoshiki.inference.backward_chaining import solve_deductive
 from futoshiki.io_parser import parse_puzzle_file
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Solve a Futoshiki puzzle using Deductive Backward Chaining")
+    parser = argparse.ArgumentParser(description="Query Futoshiki using Deductive Backward Chaining and search fallback")
     parser.add_argument("input_file", type=Path, help="Path to input-*.txt puzzle file")
     parser.add_argument("--debug", action="store_true", help="Print debug information")
     args = parser.parse_args()
@@ -38,14 +38,22 @@ def main() -> None:
     is_solved = all(cell != 0 for row in solution for cell in row)
 
     if not is_solved:
-        print(f"[UNFINISHED] {args.input_file.name} ({puzzle.n}x{puzzle.n}) - Deductive pass could not complete it.")
-        print(f"time={elapsed:.3f}s | bc_calls={stats['bc_calls']} | loops={stats['loops']}")
+        print(f"[UNFINISHED] {args.input_file.name} ({puzzle.n}x{puzzle.n}) - SLD + search could not complete it.")
+        print(
+            "time="
+            f"{elapsed:.3f}s | bc_calls={stats['bc_calls']} | loops={stats['loops']} "
+            f"| search_calls={stats.get('search_calls', 0)} | backtracks={stats.get('backtracks', 0)}"
+        )
         for row in solution:
             print(" ".join(str(v) if v != 0 else "_" for v in row))
         raise SystemExit(1)
 
     print(f"[SOLVED] {args.input_file.name} ({puzzle.n}x{puzzle.n})")
-    print(f"time={elapsed:.3f}s | bc_calls={stats['bc_calls']} | loops={stats['loops']}")
+    print(
+        "time="
+        f"{elapsed:.3f}s | bc_calls={stats['bc_calls']} | loops={stats['loops']} "
+        f"| search_calls={stats.get('search_calls', 0)} | backtracks={stats.get('backtracks', 0)}"
+    )
     for row in solution:
         print(" ".join(str(v) for v in row))
 
