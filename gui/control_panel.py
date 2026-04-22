@@ -3,24 +3,16 @@
 from collections.abc import Callable
 from pathlib import Path
 import tkinter as tk
-from tkinter import filedialog, messagebox
-from tkinter import font as tkfont
+from tkinter import messagebox
 
 from .theme import (
     BG,
     BORDER,
-    BTN_FILL,
-    BTN_HOVER,
     DISABLED,
-    ERROR_COLOR,
-    FONT_HINT,
-    FONT_LABEL,
-    FONT_LABEL_FB,
-    FONT_SMALL,
     GRID_LINE,
-    HINT_COLOR,
     PANEL_BG,
     make_button,
+    mono_font,
 )
 
 
@@ -34,12 +26,6 @@ class ControlPanel(tk.Frame):
     - Offer a clean callback surface for the main app controller.
     """
 
-    ALGORITHMS = (
-        "Brute Force",
-        "Backtracking",
-        "Forward Chaining",
-        "A*",
-    )
     QUICK_LOAD_DEFAULTS = (
         ("4×4 Example 01", "inputs/input-4x4-01.txt"),
         ("4×4 Example 02", "inputs/input-4x4-02.txt"),
@@ -92,7 +78,6 @@ class ControlPanel(tk.Frame):
         self.on_hint = on_hint
 
         self.selected_puzzle_path_var = tk.StringVar(value="")
-        self.selected_algorithm = tk.StringVar(value=self.ALGORITHMS[0])
         self.input_mode_var = tk.StringVar(value="keyboard")
         self.speed_value = tk.IntVar(value=5)
         self.speed_text_var = tk.StringVar(value=f"{self.speed_value.get():.0f}")
@@ -103,10 +88,6 @@ class ControlPanel(tk.Frame):
         self.recursive_calls_var = tk.StringVar(value="Calls  : 0")
         self.nodes_expanded_var = tk.StringVar(value="Nodes  : 0")
 
-        self.algorithm_buttons: list[tk.Radiobutton] = []
-        self.solve_button: tk.Button | None = None
-        self.step_button: tk.Button | None = None
-        self.reset_button: tk.Button | None = None
         self.manual_toggle_button: tk.Button | None = None
         self.hint_button: tk.Button | None = None
         self.manual_timer_label: tk.Label | None = None
@@ -114,14 +95,8 @@ class ControlPanel(tk.Frame):
         self.build_controls()
         self._emit_speed_change()
 
-    def _resolve_label_font(self) -> tuple[str, int]:
-        try:
-            families = set(tkfont.families())
-        except tk.TclError:
-            return FONT_LABEL_FB
-        if FONT_LABEL[0] in families:
-            return FONT_LABEL
-        return FONT_LABEL_FB
+    def _resolve_label_font(self) -> tuple[str | int, ...]:
+        return mono_font(self, 9)
 
     def _make_section(self, title: str) -> tk.LabelFrame:
         return tk.LabelFrame(
@@ -129,7 +104,7 @@ class ControlPanel(tk.Frame):
             text=title,
             bg=PANEL_BG,
             fg=BORDER,
-            font=("Press Start 2P", 8),
+            font=mono_font(self, 8),
             relief=tk.FLAT,
             bd=0,
             padx=8,
@@ -153,42 +128,6 @@ class ControlPanel(tk.Frame):
         self.columnconfigure(0, weight=1)
         current_row = 0
 
-        loader_row = tk.Frame(self, bg=PANEL_BG, bd=0, relief=tk.FLAT)
-        loader_row.grid(row=current_row, column=0, sticky="ew", pady=(0, 8))
-        loader_row.columnconfigure(0, weight=1)
-
-        tk.Entry(
-            loader_row,
-            textvariable=self.selected_puzzle_path_var,
-            width=28,
-            state="readonly",
-            readonlybackground=BG,
-            fg=BORDER,
-            bg=BG,
-            relief=tk.SOLID,
-            bd=1,
-            font=("Consolas", 9),
-        ).grid(row=0, column=0, sticky="ew")
-
-        browse_button = make_button(loader_row, "Browse…", self._handle_browse_puzzle)
-        self._set_disabled_color(browse_button)
-        browse_button.grid(
-            row=0,
-            column=1,
-            sticky="e",
-            padx=(8, 0),
-        )
-
-        load_button = make_button(loader_row, "Load", self._handle_load_puzzle)
-        self._set_disabled_color(load_button)
-        load_button.grid(row=0, column=2, sticky="e", padx=(8, 0))
-
-        clear_button = make_button(loader_row, "Clear", self._handle_clear_puzzle_path, style="danger")
-        self._set_disabled_color(clear_button)
-        clear_button.grid(row=0, column=3, sticky="e", padx=(8, 0))
-
-        current_row += 1
-
         quick_load_frame = self._make_section("Quick Load")
         quick_load_frame.grid(row=current_row, column=0, sticky="ew", pady=(0, 8))
         quick_load_frame.columnconfigure(0, weight=1)
@@ -200,7 +139,7 @@ class ControlPanel(tk.Frame):
         tk.Label(
             quick_title_row,
             text="Examples",
-            font=("Consolas", 9, "bold"),
+            font=mono_font(self, 9, "bold"),
             fg=BORDER,
             bg=PANEL_BG,
             anchor="w",
@@ -227,44 +166,6 @@ class ControlPanel(tk.Frame):
 
         current_row += 1
         self._add_divider(current_row)
-
-        radio_style = {
-            "bg": PANEL_BG,
-            "fg": BORDER,
-            "selectcolor": BORDER,
-            "font": ("Consolas", 9),
-            "activebackground": PANEL_BG,
-            "activeforeground": BORDER,
-            "highlightthickness": 0,
-            "bd": 0,
-        }
-
-        current_row += 1
-        solver_frame = self._make_section("Solver")
-        solver_frame.grid(row=current_row, column=0, sticky="ew", pady=(0, 8))
-
-        for idx, algo in enumerate(self.ALGORITHMS):
-            radio = tk.Radiobutton(
-                solver_frame,
-                text=algo,
-                value=algo,
-                variable=self.selected_algorithm,
-                **radio_style,
-            )
-            radio.grid(row=0, column=idx, sticky="w", padx=(0, 6))
-            self.algorithm_buttons.append(radio)
-
-        self.solve_button = make_button(solver_frame, "Solve", self._handle_solve, style="normal")
-        self._set_disabled_color(self.solve_button)
-        self.solve_button.grid(row=1, column=0, padx=(0, 4), pady=(6, 0), sticky="w")
-
-        self.step_button = make_button(solver_frame, "Step", self._handle_step, style="normal")
-        self._set_disabled_color(self.step_button)
-        self.step_button.grid(row=1, column=1, padx=4, pady=(6, 0), sticky="w")
-
-        self.reset_button = make_button(solver_frame, "Reset", self._handle_reset, style="danger")
-        self._set_disabled_color(self.reset_button)
-        self.reset_button.grid(row=1, column=2, padx=4, pady=(6, 0), sticky="w")
 
         self._apply_manual_mode_ui()
 
@@ -305,18 +206,6 @@ class ControlPanel(tk.Frame):
     def _show_input_format_popup(self) -> None:
         messagebox.showinfo("Input File Format", self.INPUT_FORMAT_TEXT)
 
-    def _handle_browse_puzzle(self) -> None:
-        selected_path = filedialog.askopenfilename(
-            title="Select puzzle file",
-            filetypes=(("Text files", "*.txt"),),
-        )
-        if not selected_path:
-            return
-
-        resolved_path = str(Path(selected_path).resolve())
-        self.selected_puzzle_path_var.set(resolved_path)
-        self._handle_load_puzzle()
-
     def _on_quick_load(self, path: str) -> None:
         base_dir = Path(__file__).resolve().parent.parent
         candidate = Path(path)
@@ -329,11 +218,11 @@ class ControlPanel(tk.Frame):
 
     def _handle_solve(self) -> None:
         if self.on_solve is not None:
-            self.on_solve(self.selected_algorithm.get(), self.get_delay_ms())
+            self.on_solve("Backtracking", self.get_delay_ms())
 
     def _handle_step(self) -> None:
         if self.on_step is not None:
-            self.on_step(self.selected_algorithm.get())
+            self.on_step("Backtracking")
 
     def _handle_reset(self) -> None:
         if self.on_reset is not None:
@@ -412,14 +301,6 @@ class ControlPanel(tk.Frame):
             self.manual_toggle_button.configure(
                 text="Manual Play: ON" if enabled else "Manual Play: OFF"
             )
-
-        solver_state = "disabled" if enabled else "normal"
-        if self.solve_button is not None:
-            self.solve_button.configure(state=solver_state)
-        if self.step_button is not None:
-            self.step_button.configure(state=solver_state)
-        for radio in self.algorithm_buttons:
-            radio.configure(state=solver_state)
 
         if enabled:
             if self.hint_button is not None:

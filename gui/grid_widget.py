@@ -11,6 +11,7 @@ from .theme import (
     BORDER,
     ERROR_COLOR,
     GIVEN_COLOR,
+    GRID_PATTERN_COLOR,
     GRID_LINE,
     HINT_COLOR,
     PANEL_BG,
@@ -19,11 +20,13 @@ from .theme import (
     THEME,
     get_cell_font,
     make_button,
+    mono_font,
 )
 
 
 GAP = 20
 PADDING = 20
+BACKGROUND_PATTERN_SPACING = 15
 
 
 def check_cell_valid(
@@ -276,10 +279,19 @@ class FutoshikiGrid(tk.Canvas):
         self._cell_items.clear()
         self._value_items.clear()
 
+        self._draw_background_pattern()
         self._draw_cells()
         self._draw_inequalities()
         self._draw_values()
         self._draw_outer_border()
+
+    def _draw_background_pattern(self) -> None:
+        canvas_w, canvas_h = self._canvas_dimensions()
+        spacing = BACKGROUND_PATTERN_SPACING
+        for x in range(0, canvas_w + 1, spacing):
+            self.create_line(x, 0, x, canvas_h, fill=GRID_PATTERN_COLOR, width=1)
+        for y in range(0, canvas_h + 1, spacing):
+            self.create_line(0, y, canvas_w, y, fill=GRID_PATTERN_COLOR, width=1)
 
     def _draw_cells(self) -> None:
         for i in range(self.N):
@@ -337,8 +349,8 @@ class FutoshikiGrid(tk.Canvas):
                     x,
                     y,
                     text=sign,
-                    fill="#000000",
-                    font=("Consolas", sign_font_size, "bold"),
+                    fill=BORDER,
+                    font=mono_font(self, sign_font_size, "bold"),
                     anchor=tk.CENTER,
                 )
 
@@ -356,8 +368,8 @@ class FutoshikiGrid(tk.Canvas):
                     x,
                     y,
                     text=display_sign,
-                    fill="#000000",
-                    font=("Consolas", sign_font_size, "bold"),
+                    fill=BORDER,
+                    font=mono_font(self, sign_font_size, "bold"),
                     anchor=tk.CENTER,
                 )
 
@@ -386,10 +398,13 @@ class FutoshikiGrid(tk.Canvas):
         self.create_rectangle(x1, y1, x2, y2, outline=BORDER, width=2, fill="")
 
     def _value_font(self, i: int, j: int) -> tuple:
-        base = get_cell_font(self.N)
+        base = get_cell_font(self.N, self)
         if (i, j) in self.given_cells:
             return (base[0], base[1], "bold")
-        return base
+        mode = self.value_modes.get((i, j), "player")
+        if mode == "player":
+            return (base[0], max(10, base[1] - 1), "normal")
+        return (base[0], base[1], "normal")
 
     def _cell_background(self, i: int, j: int) -> str:
         fill, _outline, _width = self._cell_style(i, j)
@@ -487,7 +502,7 @@ class FutoshikiGrid(tk.Canvas):
             tk.Label(
                 content,
                 text="SELECT VALUE",
-                font=("Press Start 2P", 8),
+                font=mono_font(self, 8, "bold"),
                 fg=BORDER,
                 bg=BG,
             ).grid(row=0, column=0, columnspan=2, padx=8, pady=(8, 6), sticky="w")
@@ -613,7 +628,18 @@ class FutoshikiGrid(tk.Canvas):
             raise ValueError("mode must be one of: player, algo, error, hint")
 
         self.board[i][j] = v
-        self.value_modes[(i, j)] = mode
+        if mode == "player":
+            is_valid = check_cell_valid(
+                self.board,
+                i,
+                j,
+                self.h_constraints,
+                self.v_constraints,
+                self.N,
+            )
+            self.value_modes[(i, j)] = "player" if is_valid else "error"
+        else:
+            self.value_modes[(i, j)] = mode
         self.redraw()
         self._check_and_notify_solved()
 

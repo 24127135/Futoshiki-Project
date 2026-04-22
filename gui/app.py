@@ -14,7 +14,18 @@ from .control_panel import ControlPanel
 from .grid_widget import FutoshikiGrid
 from .solver_generators import SOLVER_GENERATORS, SolverEvent, backtracking_solver_gen
 from .solver_runner import SolverRunner
-from .theme import BG, BORDER, CELL_SIZES
+from .theme import (
+    BG,
+    BORDER,
+    BTN_FILL,
+    BTN_HOVER,
+    BTN_HOVER_TEXT,
+    BTN_TEXT,
+    CELL_SIZES,
+    GRID_PATTERN_COLOR,
+    make_button,
+    mono_font,
+)
 
 try:
     from futoshiki.io_parser import parse_puzzle_text
@@ -41,6 +52,7 @@ class FutoshikiApp(tk.Tk):
         self.minsize(900, 620)
 
         self.project_root = Path(__file__).resolve().parent.parent
+        self._title_art_text = self._load_title_art_text()
 
         self.current_N = 4
         self.current_grid = [[None for _ in range(self.current_N)] for _ in range(self.current_N)]
@@ -59,6 +71,8 @@ class FutoshikiApp(tk.Tk):
         self._grid_area: tk.Frame | None = None
         self._control_area: tk.Frame | None = None
         self._placeholder_canvas: tk.Canvas | None = None
+        self._grid_area_pattern: tk.Canvas | None = None
+        self._loading_canvas: tk.Canvas | None = None
 
         self._solver_algorithm: str | None = None
         self._solver_runner: SolverRunner | None = None
@@ -68,12 +82,93 @@ class FutoshikiApp(tk.Tk):
         self._recursive_calls = 0
         self._nodes_expanded = 0
 
+        self._halt_agent = False
+        self._agent_timer_job: str | None = None
+        self._agent_start_time: float | None = None
+
+        self.AGENT_ALGORITHMS = ("Brute Force", "Backtracking", "Forward Chaining", "Backward Chaining", "A*")
+        self.selected_algorithm = tk.StringVar(value="Backtracking")
+        self._algo_buttons: dict[str, tk.Button] = {}
+        self.SPEED_LEVELS = {1: ("Slow", 500), 2: ("Normal", 150), 3: ("Very Fast", 10)}
+        self._speed_var = tk.IntVar(value=2)
+
         self._manual_play_enabled = False
         self._manual_timer_job: str | None = None
         self._puzzle_loaded_at = perf_counter()
         self._hint_solution_cache: list[list[int | None]] | None = None
-        self.input_mode = "keyboard"
+        self.input_mode = "cycle"
         self._input_mode_buttons: dict[str, tk.Button] = {}
+
+        self._show_loading_screen(duration_ms=4000)
+
+    def _load_title_art_text(self) -> str:
+        candidates = (
+            self.project_root / "gui" / "fonts" / "FUTOSHIKI.txt",
+            self.project_root / "FUTOSHIKI.txt",
+        )
+
+        for candidate in candidates:
+            if not (candidate.exists() and candidate.is_file()):
+                continue
+
+            try:
+                text = candidate.read_text(encoding="utf-8-sig").replace("\r\n", "\n").rstrip("\n")
+            except OSError:
+                continue
+
+            if text.strip():
+                return text
+
+        return "FUTOSHIKI"
+
+    def _show_loading_screen(self, duration_ms: int = 4000) -> None:
+        self._loading_canvas = tk.Canvas(
+            self,
+            bg=BG,
+            highlightthickness=0,
+            bd=0,
+            relief=tk.FLAT,
+        )
+        self._loading_canvas.place(relx=0, rely=0, relwidth=1, relheight=1)
+
+        self.update_idletasks()
+        self._draw_background_pattern(self._loading_canvas)
+
+        width = self._loading_canvas.winfo_width()
+        height = self._loading_canvas.winfo_height()
+        if width <= 1:
+            width = max(900, int(float(self._loading_canvas.cget("width") or 900)))
+        if height <= 1:
+            height = max(620, int(float(self._loading_canvas.cget("height") or 620)))
+
+        line_count = self._title_art_text.count("\n") + 1
+        title_font_size = 10 if line_count >= 4 else 12
+        title_y = int(height * 0.45)
+        footer_y = min(height - 40, title_y + int(line_count * title_font_size * 0.75) + 42)
+
+        self._loading_canvas.create_text(
+            width / 2,
+            title_y,
+            text=self._title_art_text,
+            font=mono_font(self, title_font_size, "bold"),
+            fill=BORDER,
+            justify=tk.CENTER,
+        )
+        self._loading_canvas.create_text(
+            width / 2,
+            footer_y,
+            text="Loading...",
+            font=mono_font(self, 11),
+            fill=BORDER,
+            justify=tk.CENTER,
+        )
+
+        self.after(max(1, duration_ms), self._finish_loading_screen)
+
+    def _finish_loading_screen(self) -> None:
+        if self._loading_canvas is not None:
+            self._loading_canvas.destroy()
+            self._loading_canvas = None
 
         self.build_layout()
         self._build_menu()
@@ -81,12 +176,12 @@ class FutoshikiApp(tk.Tk):
 
     def build_layout(self) -> None:
         """Create and place a fixed-header 4-zone grid layout."""
-        self.columnconfigure(0, weight=0, minsize=220)
+        self.columnconfigure(0, weight=0, minsize=280)
         self.columnconfigure(1, weight=1)
-        self.rowconfigure(0, weight=0, minsize=80)
+        self.rowconfigure(0, weight=0, minsize=90)
         self.rowconfigure(1, weight=1)
 
-        self._title_area = tk.Frame(self, bg="#000000", width=220, height=80, bd=0, relief=tk.FLAT)
+        self._title_area = tk.Frame(self, bg=BG, width=280, height=90, bd=0, relief=tk.FLAT)
         self._title_area.grid(row=0, column=0, sticky="nsew")
         self._title_area.grid_propagate(False)
         self._title_area.columnconfigure(0, weight=1)
@@ -94,24 +189,26 @@ class FutoshikiApp(tk.Tk):
 
         tk.Label(
             self._title_area,
-            text="FUTOSHIKI",
-            font=("Press Start 2P", 10),
-            fg="#ffffff",
-            bg="#000000",
+            text=self._title_art_text,
+            font=mono_font(self, 4),
+            fg=BORDER,
+            bg=BG,
             anchor="center",
-            padx=8,
+            justify=tk.CENTER,
+            padx=2,
         ).grid(row=0, column=0, sticky="nsew")
 
-        self._top_bar_area = tk.Frame(self, bg="#1a1a1a", height=80, bd=0, relief=tk.FLAT)
+        self._top_bar_area = tk.Frame(self, bg=BG, height=90, bd=0, relief=tk.FLAT)
         self._top_bar_area.grid(row=0, column=1, sticky="nsew")
         self._top_bar_area.grid_propagate(False)
         self._top_bar_area.columnconfigure(0, weight=1)
-        self._top_bar_area.rowconfigure(0, weight=1)
+        self._top_bar_area.rowconfigure(0, weight=0)
+        self._top_bar_area.rowconfigure(1, weight=1)
 
         self._control_area = tk.Frame(
             self,
-            bg="#f5f5f5",
-            width=220,
+            bg=BG,
+            width=280,
             padx=0,
             pady=0,
             bd=0,
@@ -124,7 +221,7 @@ class FutoshikiApp(tk.Tk):
 
         self._grid_area = tk.Frame(
             self,
-            bg="#ffffff",
+            bg=BG,
             padx=16,
             pady=16,
             bd=0,
@@ -133,6 +230,17 @@ class FutoshikiApp(tk.Tk):
         self._grid_area.grid(row=1, column=1, sticky="nsew")
         self._grid_area.columnconfigure(0, weight=1)
         self._grid_area.rowconfigure(0, weight=1)
+
+        self._grid_area_pattern = tk.Canvas(
+            self._grid_area,
+            bg=BG,
+            highlightthickness=0,
+            bd=0,
+            relief=tk.FLAT,
+        )
+        self._grid_area_pattern.place(relx=0, rely=0, relwidth=1, relheight=1)
+        self._grid_area.bind("<Configure>", self._on_grid_area_resize)
+        self._draw_background_pattern(self._grid_area_pattern)
 
         self.control_panel = ControlPanel(
             self._control_area,
@@ -154,106 +262,168 @@ class FutoshikiApp(tk.Tk):
 
         for child in self._top_bar_area.winfo_children():
             child.destroy()
-
-        base_button_style = {
-            "bg": "#1a1a1a",
-            "fg": "#ffffff",
-            "relief": tk.FLAT,
-            "bd": 0,
-            "font": ("Press Start 2P", 8),
-            "padx": 10,
-            "pady": 0,
-            "cursor": "hand2",
-            "activebackground": "#333333",
-            "activeforeground": "#ffffff",
-            "highlightthickness": 0,
-        }
-
-        new_game_btn = tk.Button(
-            self._top_bar_area,
-            text="NEW GAME",
-            command=self.on_new_game,
-            **base_button_style,
-        )
-        new_game_btn.pack(side=tk.LEFT, padx=6, pady=0, ipady=24, anchor=tk.CENTER)
-        self._bind_top_button_hover(new_game_btn)
-
-        restart_btn = tk.Button(
-            self._top_bar_area,
-            text="RESTART",
-            command=self.on_restart,
-            **base_button_style,
-        )
-        restart_btn.pack(side=tk.LEFT, padx=6, pady=0, ipady=24, anchor=tk.CENTER)
-        self._bind_top_button_hover(restart_btn)
-
-        tk.Label(
-            self._top_bar_area,
-            text="|",
-            fg="#444444",
-            bg="#1a1a1a",
-            font=("Consolas", 12),
-        ).pack(side=tk.LEFT, padx=6, pady=0, anchor=tk.CENTER)
-
-        hint_btn = tk.Button(
-            self._top_bar_area,
-            text="HINT",
-            command=self.on_hint,
-            **base_button_style,
-        )
-        hint_btn.pack(side=tk.LEFT, padx=6, pady=0, ipady=24, anchor=tk.CENTER)
-        self._bind_top_button_hover(hint_btn)
-
-        tk.Label(
-            self._top_bar_area,
-            text="|",
-            fg="#444444",
-            bg="#1a1a1a",
-            font=("Consolas", 12),
-        ).pack(side=tk.LEFT, padx=6, pady=0, anchor=tk.CENTER)
-
-        tk.Label(
-            self._top_bar_area,
-            text="INPUT :",
-            fg="#888888",
-            bg="#1a1a1a",
-            font=("Consolas", 9),
-        ).pack(side=tk.LEFT, padx=6, pady=0, anchor=tk.CENTER)
-
-        mode_buttons = (
-            ("keyboard", "⌨ KEY"),
-            ("popup", "☰ POPUP"),
-            ("cycle", "↻ CYCLE"),
-        )
         self._input_mode_buttons.clear()
-        for mode, label in mode_buttons:
-            button = tk.Button(
-                self._top_bar_area,
-                text=label,
-                command=lambda selected=mode: self.set_input_mode(selected),
-                bg="#1a1a1a",
-                fg="#888888",
-                relief=tk.FLAT,
-                bd=0,
-                font=("Press Start 2P", 8),
-                padx=10,
-                pady=0,
-                cursor="hand2",
-                activebackground="#333333",
-                activeforeground="#ffffff",
-                highlightthickness=0,
-            )
-            button.pack(side=tk.LEFT, padx=6, pady=0, ipady=24, anchor=tk.CENTER)
-            button.bind("<Enter>", lambda _event, selected=mode: self._on_mode_button_enter(selected))
-            button.bind("<Leave>", lambda _event: self._refresh_input_mode_buttons())
-            self._input_mode_buttons[mode] = button
+        self._algo_buttons.clear()
 
-        self._refresh_input_mode_buttons()
+        # --- Row 0: Algorithm selector ---
+        algo_row = tk.Frame(self._top_bar_area, bg=BG)
+        algo_row.grid(row=0, column=0, sticky="ew", padx=12, pady=(8, 0))
+
+        tk.Label(
+            algo_row, text="Agent:", bg=BG, fg=BORDER,
+            font=mono_font(self, 9, "bold"),
+        ).pack(side="left", padx=(0, 8))
+
+        for algo in self.AGENT_ALGORITHMS:
+            btn = make_button(algo_row, algo, lambda a=algo: self._select_algorithm(a))
+            btn.pack(side="left", padx=3)
+            self._algo_buttons[algo] = btn
+
+        self._refresh_algo_buttons()
+
+        # --- Row 1: Action controls ---
+        action_row = tk.Frame(self._top_bar_area, bg=BG)
+        action_row.grid(row=1, column=0, sticky="ew", padx=12, pady=(4, 8))
+
+        self.btn_run_agent = make_button(action_row, "▶ Run Agent", self.on_run_agent)
+        self.btn_run_agent.pack(side="left", padx=(0, 4))
+
+        self.btn_halt_agent = make_button(action_row, "■ Halt", self.on_halt_agent, style="danger")
+        self.btn_halt_agent.pack(side="left", padx=4)
+        self.btn_halt_agent.configure(state="disabled")
+
+        self.btn_reset_agent = make_button(action_row, "↺ Reset", self.on_reset)
+        self.btn_reset_agent.pack(side="left", padx=4)
+
+        # Separator
+        sep = tk.Frame(action_row, bg=BORDER, width=1, height=20, bd=0)
+        sep.pack(side="left", padx=10, fill="y")
+
+        self.lbl_agent_timer = tk.Label(
+            action_row, text="00:00.0s", bg=BG, fg=BORDER,
+            font=mono_font(self, 12, "bold"),
+        )
+        self.lbl_agent_timer.pack(side="left", padx=(6, 12))
+
+        self.lbl_agent_nodes = tk.Label(
+            action_row, text="Nodes: 0", bg=BG, fg=BORDER,
+            font=mono_font(self, 9),
+        )
+        self.lbl_agent_nodes.pack(side="left", padx=(0, 12))
+
+        # Speed slider (3 levels)
+        sep2 = tk.Frame(action_row, bg=BORDER, width=1, height=20, bd=0)
+        sep2.pack(side="left", padx=10, fill="y")
+        self._speed_label = tk.Label(
+            action_row, text="Normal", bg=BG, fg=BORDER,
+            font=mono_font(self, 8), width=9, anchor="center",
+        )
+        self._speed_label.pack(side="left", padx=(0, 2))
+        self._speed_scale = tk.Scale(
+            action_row, from_=1, to=3, orient="horizontal",
+            variable=self._speed_var,
+            bg=BG, fg=BORDER, highlightthickness=0, bd=0,
+            length=60, showvalue=False, resolution=1,
+            command=self._on_speed_slider_change,
+        )
+        self._speed_scale.pack(side="left")
+
+    def _select_algorithm(self, algo: str) -> None:
+        """Handle clicking an algorithm button in the top bar."""
+        self.selected_algorithm.set(algo)
+        self._refresh_algo_buttons()
+
+    def _refresh_algo_buttons(self) -> None:
+        """Highlight the currently selected algorithm button."""
+        current = self.selected_algorithm.get()
+        for name, btn in self._algo_buttons.items():
+            if name == current:
+                btn.configure(bg=BTN_HOVER, fg=BTN_HOVER_TEXT)
+                # Override hover bindings so it stays highlighted
+                btn.unbind("<Enter>")
+                btn.unbind("<Leave>")
+                btn.bind("<Enter>", lambda _e, b=btn: b.configure(bg=BTN_HOVER, fg=BTN_HOVER_TEXT))
+                btn.bind("<Leave>", lambda _e, b=btn: b.configure(bg=BTN_HOVER, fg=BTN_HOVER_TEXT))
+            else:
+                btn.configure(bg=BTN_FILL, fg=BTN_TEXT)
+                btn.unbind("<Enter>")
+                btn.unbind("<Leave>")
+                btn.bind("<Enter>", lambda _e, b=btn: b.configure(bg=BTN_HOVER, fg=BTN_HOVER_TEXT))
+                btn.bind("<Leave>", lambda _e, b=btn: b.configure(bg=BTN_FILL, fg=BTN_TEXT))
+
+    def on_run_agent(self) -> None:
+        if self.grid_widget is None:
+            messagebox.showwarning("Run Agent", "Please load a puzzle first.")
+            return
+
+        self._halt_agent = False
+        self.btn_run_agent.configure(state="disabled")
+        self.btn_halt_agent.configure(state="normal")
+
+        self._agent_start_time = perf_counter()
+        self._start_agent_timer()
+
+        algorithm = self.selected_algorithm.get()
+        self.on_solve(algorithm, self._get_agent_delay_ms())
+
+    def on_halt_agent(self) -> None:
+        self._halt_agent = True
+        self.btn_halt_agent.configure(state="disabled")
+
+    def _get_agent_delay_ms(self) -> int:
+        level = self._speed_var.get()
+        _, delay = self.SPEED_LEVELS.get(level, ("Normal", 150))
+        return delay
+
+    def _on_speed_slider_change(self, value: str) -> None:
+        level = int(value)
+        name, delay = self.SPEED_LEVELS.get(level, ("Normal", 150))
+        self._animation_delay_ms = delay
+        if hasattr(self, '_speed_label'):
+            self._speed_label.config(text=name)
+
+    def _start_agent_timer(self) -> None:
+        self._stop_agent_timer()
+        self._agent_timer_tick()
+
+    def _stop_agent_timer(self) -> None:
+        if self._agent_timer_job is not None:
+            self.after_cancel(self._agent_timer_job)
+            self._agent_timer_job = None
+
+    def _agent_timer_tick(self) -> None:
+        if self._agent_start_time is not None:
+            elapsed = perf_counter() - self._agent_start_time
+            mins = int(elapsed // 60)
+            secs = elapsed % 60
+            self.lbl_agent_timer.config(text=f"{mins:02d}:{secs:04.1f}s")
+
+        self._agent_timer_job = self.after(100, self._agent_timer_tick)
 
     @staticmethod
     def _bind_top_button_hover(button: tk.Button) -> None:
-        button.bind("<Enter>", lambda _event: button.configure(bg="#333333"))
-        button.bind("<Leave>", lambda _event: button.configure(bg="#1a1a1a"))
+        button.bind("<Enter>", lambda _event: button.configure(bg=BTN_HOVER, fg=BTN_HOVER_TEXT))
+        button.bind("<Leave>", lambda _event: button.configure(bg=BTN_FILL, fg=BTN_TEXT))
+
+    def _on_grid_area_resize(self, _event: tk.Event) -> None:
+        if self._grid_area_pattern is None:
+            return
+        self._draw_background_pattern(self._grid_area_pattern)
+
+    @staticmethod
+    def _draw_background_pattern(canvas: tk.Canvas, spacing: int = 15) -> None:
+        width = canvas.winfo_width()
+        height = canvas.winfo_height()
+        if width <= 1:
+            width = int(float(canvas.cget("width")))
+        if height <= 1:
+            height = int(float(canvas.cget("height")))
+
+        canvas.delete("bg_pattern")
+        for x in range(0, width + 1, spacing):
+            canvas.create_line(x, 0, x, height, fill=GRID_PATTERN_COLOR, width=1, tags="bg_pattern")
+        for y in range(0, height + 1, spacing):
+            canvas.create_line(0, y, width, y, fill=GRID_PATTERN_COLOR, width=1, tags="bg_pattern")
 
     def _on_control_panel_input_mode_change(self, *_args: object) -> None:
         if self.control_panel is None:
@@ -268,27 +438,27 @@ class FutoshikiApp(tk.Tk):
             return
 
         if mode == self.input_mode:
-            button.configure(bg="#ffffff", fg="#000000")
+            button.configure(bg=BTN_HOVER, fg=BTN_HOVER_TEXT)
             return
 
-        button.configure(bg="#333333", fg="#ffffff")
+        button.configure(bg=BTN_HOVER, fg=BTN_HOVER_TEXT)
 
     def _refresh_input_mode_buttons(self) -> None:
         for mode, button in self._input_mode_buttons.items():
             if mode == self.input_mode:
                 button.configure(
-                    bg="#ffffff",
-                    fg="#000000",
-                    activebackground="#ffffff",
-                    activeforeground="#000000",
+                    bg=BTN_HOVER,
+                    fg=BTN_HOVER_TEXT,
+                    activebackground=BTN_HOVER,
+                    activeforeground=BTN_HOVER_TEXT,
                 )
                 continue
 
             button.configure(
-                bg="#1a1a1a",
-                fg="#888888",
-                activebackground="#333333",
-                activeforeground="#ffffff",
+                bg=BTN_FILL,
+                fg=BTN_TEXT,
+                activebackground=BTN_HOVER,
+                activeforeground=BTN_HOVER_TEXT,
             )
 
     def set_input_mode(self, mode: str) -> None:
@@ -319,22 +489,31 @@ class FutoshikiApp(tk.Tk):
         if self._placeholder_canvas is not None:
             self._placeholder_canvas.destroy()
 
-        default_size = 4 * CELL_SIZES[4]
+        # Measure text to size the canvas correctly
+        import tkinter.font as tkfont
+        measure_font = tkfont.Font(font=mono_font(self, 8, "bold"))
+        lines = self._title_art_text.split("\n")
+        text_width = max(measure_font.measure(line) for line in lines) + 40
+        text_height = measure_font.metrics("linespace") * len(lines) + 40
+        canvas_w = max(400, text_width)
+        canvas_h = max(400, text_height)
+
         self._placeholder_canvas = tk.Canvas(
             self._grid_area,
-            width=default_size,
-            height=default_size,
+            width=canvas_w,
+            height=canvas_h,
             bg=BG,
             highlightthickness=0,
             bd=0,
             relief=tk.FLAT,
         )
         self._placeholder_canvas.place(relx=0.5, rely=0.5, anchor="center")
+        self._draw_background_pattern(self._placeholder_canvas)
         self._placeholder_canvas.create_text(
-            default_size / 2,
-            default_size / 2,
-            text="LOAD A PUZZLE\nOR SELECT NEW SIZE",
-            font=("Press Start 2P", 12),
+            canvas_w / 2,
+            canvas_h / 2,
+            text=self._title_art_text,
+            font=mono_font(self, 8, "bold"),
             fill=BORDER,
             justify=tk.CENTER,
         )
@@ -394,7 +573,7 @@ class FutoshikiApp(tk.Tk):
 
         if self.control_panel is not None:
             self.control_panel.selected_puzzle_path_var.set(f"Blank {N}×{N}")
-        self.set_input_mode("keyboard")
+        self.set_input_mode("cycle")
 
     def on_solve(self, algorithm: str, delay_ms: int) -> None:
         """Run the selected algorithm and animate assignments onto the grid."""
@@ -434,7 +613,7 @@ class FutoshikiApp(tk.Tk):
         if self._apply_next_solver_step():
             self._update_stats_view()
         else:
-            self._finish_animation_session()
+            self._finish_animation_session(halted=False)
 
     def on_reset(self) -> None:
         """Restore original clues and remove all player/solver entries."""
@@ -529,6 +708,7 @@ class FutoshikiApp(tk.Tk):
         )
         self.grid_widget.set_keyboard_enabled(self._manual_play_enabled)
         self.grid_widget.pack(expand=True, fill="both")
+        tk.Misc.tkraise(self.grid_widget)
 
     def _cancel_animation(self) -> None:
         if self._animation_job is not None:
@@ -540,12 +720,17 @@ class FutoshikiApp(tk.Tk):
 
     def _run_animation_step(self) -> None:
         self._animation_job = None
+        
+        if self._halt_agent:
+            self._finish_animation_session(halted=True)
+            return
+
         if self._apply_next_solver_step():
             self._update_stats_view()
             self._schedule_next_animation_step()
             return
 
-        self._finish_animation_session()
+        self._finish_animation_session(halted=False)
 
     def _apply_next_solver_step(self) -> bool:
         if self.grid_widget is None or self._solver_runner is None:
@@ -585,6 +770,8 @@ class FutoshikiApp(tk.Tk):
                 return False
             self.grid_widget.set_value(i, j, v, mode="algo")
             self._nodes_expanded += 1
+            if hasattr(self, 'lbl_agent_nodes'):
+                self.lbl_agent_nodes.config(text=f"Nodes: {self._nodes_expanded}")
             return True
 
         if event_type == "backtrack":
@@ -592,6 +779,9 @@ class FutoshikiApp(tk.Tk):
                 return False
             self.grid_widget.clear_value(i, j)
             self._recursive_calls += 1
+            self._nodes_expanded += 1
+            if hasattr(self, 'lbl_agent_nodes'):
+                self.lbl_agent_nodes.config(text=f"Nodes: {self._nodes_expanded}")
             return True
 
         if event_type == "solved":
@@ -607,14 +797,34 @@ class FutoshikiApp(tk.Tk):
         if self.control_panel is not None:
             self.control_panel.reset_stats()
 
-    def _finish_animation_session(self) -> None:
+    def _finish_animation_session(self, halted: bool = False) -> None:
         self._cancel_animation()
         self._update_stats_view()
+        self._stop_agent_timer()
+        
+        if hasattr(self, 'btn_run_agent'):
+            self.btn_run_agent.configure(state="normal")
+            self.btn_halt_agent.configure(state="disabled")
+
+        if not halted and self._solve_start_time is not None:
+            elapsed = perf_counter() - self._solve_start_time
+            messagebox.showinfo(
+                "Solver Agent Finished!",
+                f"Solver Agent Finished!\n\nTotal Time Taken: {elapsed:.3f}s\nNodes Expanded: {self._nodes_expanded}"
+            )
 
     def _reset_stats_state(self) -> None:
         self._solve_start_time = None
         self._recursive_calls = 0
         self._nodes_expanded = 0
+        self._stop_agent_timer()
+        if hasattr(self, 'lbl_agent_timer'):
+            self.lbl_agent_timer.config(text="00:00.0s")
+        if hasattr(self, 'lbl_agent_nodes'):
+            self.lbl_agent_nodes.config(text="Nodes: 0")
+        if hasattr(self, 'btn_run_agent'):
+            self.btn_run_agent.configure(state="normal")
+            self.btn_halt_agent.configure(state="disabled")
         if self.control_panel is not None:
             self.control_panel.reset_stats()
 
