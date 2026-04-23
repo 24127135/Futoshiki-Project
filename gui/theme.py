@@ -4,22 +4,56 @@ import tkinter as tk
 from tkinter import font as tkfont
 
 
-BG = "#f2f0e3"
+BG                 = "#f2f0e3"
 GRID_PATTERN_COLOR = "#e2e0d3"
-BTN_FILL = "#fafafa"
-BTN_TEXT = "#090909"
-BTN_HOVER = "#090909"
-BTN_HOVER_TEXT = "#fafafa"
-PANEL_BG = BG
-BORDER = "#090909"
-GRID_LINE = "#d4d1c4"
-SELECTED_RING = "#090909"
-GIVEN_COLOR = "#090909"
-PLAYER_COLOR = "#3a3a3a"
-ALGO_COLOR = "#2f2f2f"
-ERROR_COLOR = "#cc0000"
-HINT_COLOR = "#ff9900"
-DISABLED = "#8f8f8f"
+BTN_FILL           = "#fafafa"
+BTN_TEXT           = "#090909"
+BTN_HOVER          = "#090909"
+BTN_HOVER_TEXT     = "#fafafa"
+PANEL_BG           = BG
+BORDER             = "#090909"
+GRID_LINE          = "#d4d1c4"
+SELECTED_RING      = "#090909"
+GIVEN_COLOR        = "#090909"
+PLAYER_COLOR       = "#3a3a3a"
+ALGO_COLOR         = "#2f2f2f"
+ERROR_COLOR        = "#cc0000"
+HINT_COLOR         = "#ff9900"
+DISABLED           = "#8f8f8f"
+# Tkinter colors do not support alpha; use a lighter blended tone as a softer shadow.
+SHADOW             = "#9a9a96"
+
+def bind_continuous_grid(canvas: tk.Canvas) -> None:
+    """Binds a configure event to draw a continuous graph-paper grid across the app."""
+    def _draw(event=None):
+        if event and event.widget != canvas:
+            return
+        canvas.delete("bg_grid")
+        w = canvas.winfo_width()
+        h = canvas.winfo_height()
+        if w <= 1 or h <= 1:
+            return
+            
+        spacing = 15
+        root = canvas.winfo_toplevel()
+        rx = root.winfo_rootx() if root.winfo_rootx() > 0 else 0
+        ry = root.winfo_rooty() if root.winfo_rooty() > 0 else 0
+        
+        offset_x = canvas.winfo_rootx() - rx
+        offset_y = canvas.winfo_rooty() - ry
+        
+        start_x = (spacing - (offset_x % spacing)) % spacing
+        start_y = (spacing - (offset_y % spacing)) % spacing
+        
+        for x in range(start_x, w, spacing):
+            canvas.create_line(x, 0, x, h, fill=GRID_PATTERN_COLOR, tags="bg_grid")
+        for y in range(start_y, h, spacing):
+            canvas.create_line(0, y, w, y, fill=GRID_PATTERN_COLOR, tags="bg_grid")
+        canvas.tag_lower("bg_grid")
+
+    canvas.bind("<Configure>", _draw, add="+")
+    # Trigger an initial draw shortly after mapping
+    canvas.after(100, _draw)
 
 MONO_FONT_CANDIDATES = (
     "JetBrain NerdFont Mono",
@@ -89,19 +123,103 @@ def _label_font_with_fallback(parent: tk.Misc) -> tuple:
     return mono_font(parent, FONT_LABEL[1])
 
 
+class NeoButton(tk.Frame):
+    """Neo-brutalist wrapper replacing standard tk.Button."""
+    
+    def __init__(self, master: tk.Misc, **kwargs):
+        self.command = kwargs.pop("command", None)
+        self.default_bg = kwargs.get("bg", BTN_FILL)
+        self.default_fg = kwargs.get("fg", BTN_TEXT)
+        self._state = kwargs.pop("state", "normal")
+        self._is_pressed = False
+        # Thick brutalist shadow offset
+        self.shadow_offset = 3 if kwargs.pop("style_small", False) else 3
+        
+        super().__init__(master, bg=SHADOW, padx=0, pady=0)
+        
+        # Strip out standard Button kwargs not supported by Label
+        kwargs.pop("activebackground", None)
+        kwargs.pop("activeforeground", None)
+        kwargs.pop("disabledforeground", None)
+        kwargs.pop("bd", None)
+        kwargs.pop("relief", None)
+        
+        if "cursor" not in kwargs:
+            kwargs["cursor"] = "hand2"
+            
+        self.top_layer = tk.Label(
+            self,
+            highlightbackground=BORDER,
+            highlightcolor=BORDER,
+            highlightthickness=2,
+            **kwargs
+        )
+        
+        self.top_layer.pack(fill="both", expand=True, padx=(0, self.shadow_offset), pady=(0, self.shadow_offset))
+        
+        self.top_layer.bind("<ButtonPress-1>", self._on_press)
+        self.top_layer.bind("<ButtonRelease-1>", self._on_release)
+        # Also bind on the frame in case user clicks the shadow area
+        super().bind("<ButtonPress-1>", self._on_press)
+        super().bind("<ButtonRelease-1>", self._on_release)
+
+    def _on_press(self, event):
+        if self._state != "disabled":
+            self.top_layer.pack_configure(padx=(self.shadow_offset, 0), pady=(self.shadow_offset, 0))
+
+    def _on_release(self, event):
+        if self._state != "disabled":
+            self.top_layer.pack_configure(padx=(0, self.shadow_offset), pady=(0, self.shadow_offset))
+            # Only trigger command if released over the widget (simple check)
+            if self.command:
+                self.command()
+
+    def configure(self, **kwargs):
+        self.config(**kwargs)
+        
+    def config(self, **kwargs):
+        if "command" in kwargs:
+            self.command = kwargs.pop("command")
+        if "state" in kwargs:
+            self._state = kwargs.pop("state")
+            if self._state == "disabled":
+                self.top_layer.config(fg=DISABLED, cursor="arrow")
+            else:
+                self.top_layer.config(fg=self.default_fg, cursor="hand2")
+            if not kwargs:
+                return
+                
+        if "bg" in kwargs:
+            self.default_bg = kwargs["bg"]
+        if "fg" in kwargs:
+            self.default_fg = kwargs["fg"]
+            
+        kwargs.pop("activebackground", None)
+        kwargs.pop("activeforeground", None)
+        kwargs.pop("disabledforeground", None)
+        kwargs.pop("bd", None)
+        kwargs.pop("relief", None)
+        
+        if kwargs:
+            self.top_layer.config(**kwargs)
+
+    def bind(self, sequence=None, func=None, add=None):
+        return self.top_layer.bind(sequence, func, add)
+        
+    def unbind(self, sequence, funcid=None):
+        self.top_layer.unbind(sequence, funcid)
+
+
+
 def make_button(parent, text, command, style="normal"):
     label_font = _label_font_with_fallback(parent)
 
     button_kwargs = {
         "text": text,
         "command": command,
-        "cursor": "hand2",
         "padx": 8,
         "pady": 4,
-        "activebackground": BTN_HOVER,
-        "activeforeground": BTN_HOVER_TEXT,
-        "relief": tk.FLAT,
-        "bd": 0,
+        "style_small": style == "small"
     }
 
     if style == "normal":
@@ -118,8 +236,6 @@ def make_button(parent, text, command, style="normal"):
                 "bg": BTN_FILL,
                 "fg": ERROR_COLOR,
                 "font": label_font,
-                "relief": tk.SOLID,
-                "bd": 1,
             }
         )
     elif style == "small":
@@ -133,7 +249,7 @@ def make_button(parent, text, command, style="normal"):
     else:
         raise ValueError("style must be one of: normal, danger, small")
 
-    button = tk.Button(parent, **button_kwargs)
+    button = NeoButton(parent, **button_kwargs)
 
     original_bg = button_kwargs["bg"]
     original_fg = button_kwargs["fg"]

@@ -24,7 +24,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from futoshiki.solvers.brute_force import brute_force_gen as _src_brute_force_gen
 from futoshiki.solvers.backtracking import backtracking_gen as _src_backtracking_gen
-from futoshiki.solvers.brute_force import is_valid as _brute_is_valid
 from futoshiki.solvers.astar import (
     ac3 as _astar_ac3,
     get_h_base as _astar_get_h_base,
@@ -417,88 +416,6 @@ def a_star_solver_gen(
 
 
 # ---------------------------------------------------------------------------
-#  5. Backward Chaining — FOL deductive solver generator
-# ---------------------------------------------------------------------------
-
-from futoshiki.solvers.backward_chaining import solve_deductive as _bc_solve_deductive
-from futoshiki.solvers.brute_force import is_valid as _bc_is_valid_check
-
-
-def backward_chaining_solver_gen(
-    grid: list[list[int | None]],
-    h_constraints: list[list[str]],
-    v_constraints: list[list[str]],
-    N: int,
-) -> SolverGen:
-    """Yield backward-chaining deductive steps for visualization.
-
-    Pre-computes the solution using the FOL backward chaining solver,
-    then replays the assignments as GUI events. If pure deduction stalls,
-    falls back to backtracking search for remaining cells.
-    """
-    int_grid = _grid_none_to_zero(grid)
-    int_h = _h_sym_to_int(h_constraints)
-    int_v = _v_sym_to_int(v_constraints)
-
-    # Run the deductive solver to completion
-    solution, _stats = _bc_solve_deductive(N, int_grid, int_h, int_v)
-
-    # Collect which cells were filled by deduction (not original clues)
-    deduced: list[tuple[int, int, int]] = []
-    for r in range(N):
-        for c in range(N):
-            if int_grid[r][c] == 0 and solution[r][c] != 0:
-                deduced.append((r, c, solution[r][c]))
-
-    # Yield deduced assignments
-    for r, c, v in deduced:
-        yield ("try", r, c, v)
-
-    # Check if there are remaining empty cells — fill with backtracking
-    remaining: list[tuple[int, int]] = []
-    for r in range(N):
-        for c in range(N):
-            if solution[r][c] == 0:
-                remaining.append((r, c))
-
-    if remaining:
-        yield from _bc_backtrack_remaining(solution, remaining, 0, int_h, int_v, N)
-
-    # Final solved event
-    is_complete = all(solution[r][c] != 0 for r in range(N) for c in range(N))
-    if is_complete:
-        yield ("solved", None, None, None)
-
-
-def _bc_backtrack_remaining(
-    grid: list[list[int]],
-    cells: list[tuple[int, int]],
-    idx: int,
-    h_con: list[list[int]],
-    v_con: list[list[int]],
-    N: int,
-) -> Generator[SolverEvent, None, bool]:
-    """Backtrack over cells that deduction couldn't resolve."""
-    if idx >= len(cells):
-        return True
-
-    r, c = cells[idx]
-    for v in range(1, N + 1):
-        if _brute_is_valid(grid, r, c, v, h_con, v_con, N):
-            grid[r][c] = v
-            yield ("try", r, c, v)
-
-            solved = yield from _bc_backtrack_remaining(grid, cells, idx + 1, h_con, v_con, N)
-            if solved:
-                return True
-
-            grid[r][c] = 0
-            yield ("backtrack", r, c, None)
-
-    return False
-
-
-# ---------------------------------------------------------------------------
 #  Registry
 # ---------------------------------------------------------------------------
 
@@ -506,6 +423,5 @@ SOLVER_GENERATORS = {
     "Brute Force": brute_force_solver_gen,
     "Backtracking": backtracking_solver_gen,
     "Forward Chaining": forward_chaining_solver_gen,
-    "Backward Chaining": backward_chaining_solver_gen,
     "A*": a_star_solver_gen,
 }

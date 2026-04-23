@@ -3,7 +3,6 @@
 from collections.abc import Callable
 from pathlib import Path
 import tkinter as tk
-from tkinter import messagebox
 
 from .theme import (
     BG,
@@ -13,10 +12,11 @@ from .theme import (
     PANEL_BG,
     make_button,
     mono_font,
+    bind_continuous_grid,
 )
 
 
-class ControlPanel(tk.Frame):
+class ControlPanel(tk.Canvas):
     """Widget that groups command buttons and selection controls.
 
     Responsibilities:
@@ -56,16 +56,16 @@ class ControlPanel(tk.Frame):
         on_speed_change: Callable[[int], None] | None = None,
         on_manual_toggle: Callable[[bool], None] | None = None,
         on_hint: Callable[[], None] | None = None,
+        on_show_info: Callable[[str, str], None] | None = None,
     ) -> None:
         """Create a control panel and wire optional callback handlers."""
         super().__init__(
             master,
             bg=PANEL_BG,
-            relief=tk.FLAT,
             bd=0,
-            padx=12,
-            pady=12,
+            highlightthickness=0,
         )
+        bind_continuous_grid(self)
 
         self._label_font = self._resolve_label_font()
 
@@ -76,6 +76,7 @@ class ControlPanel(tk.Frame):
         self.on_speed_change = on_speed_change
         self.on_manual_toggle = on_manual_toggle
         self.on_hint = on_hint
+        self.on_show_info = on_show_info
 
         self.selected_puzzle_path_var = tk.StringVar(value="")
         self.input_mode_var = tk.StringVar(value="keyboard")
@@ -98,26 +99,28 @@ class ControlPanel(tk.Frame):
     def _resolve_label_font(self) -> tuple[str | int, ...]:
         return mono_font(self, 9)
 
-    def _make_section(self, title: str) -> tk.LabelFrame:
-        return tk.LabelFrame(
+    def _make_section(self, title: str) -> tk.Canvas:
+        frame = tk.Canvas(
             self,
+            bg=PANEL_BG,
+            bd=0,
+            highlightthickness=0,
+        )
+        bind_continuous_grid(frame)
+        
+        # Add a custom text label since tk.Canvas doesn't have LabelFrame titles natively
+        tk.Label(
+            frame,
             text=title,
             bg=PANEL_BG,
             fg=BORDER,
-            font=mono_font(self, 8),
-            relief=tk.FLAT,
-            bd=0,
-            padx=8,
-            pady=6,
-        )
+            font=mono_font(self, 8)
+        ).grid(row=0, column=0, sticky="nw", pady=(0, 4))
+        
+        return frame
 
     def _add_divider(self, row: int) -> None:
-        tk.Frame(self, bg=GRID_LINE, height=1, bd=0, relief=tk.FLAT).grid(
-            row=row,
-            column=0,
-            sticky="ew",
-            pady=(0, 8),
-        )
+        pass # Remove divider, grid lines make it obsolete
 
     @staticmethod
     def _set_disabled_color(button: tk.Button) -> None:
@@ -129,11 +132,12 @@ class ControlPanel(tk.Frame):
         current_row = 0
 
         quick_load_frame = self._make_section("Quick Load")
-        quick_load_frame.grid(row=current_row, column=0, sticky="ew", pady=(0, 8))
+        quick_load_frame.grid(row=current_row, column=0, sticky="ew", pady=(0, 8), padx=12)
         quick_load_frame.columnconfigure(0, weight=1)
 
-        quick_title_row = tk.Frame(quick_load_frame, bg=PANEL_BG, bd=0, relief=tk.FLAT)
-        quick_title_row.grid(row=0, column=0, sticky="ew", padx=4, pady=(0, 4))
+        quick_title_row = tk.Canvas(quick_load_frame, bg=PANEL_BG, bd=0, highlightthickness=0)
+        bind_continuous_grid(quick_title_row)
+        quick_title_row.grid(row=1, column=0, sticky="ew", padx=4, pady=(0, 4))
         quick_title_row.columnconfigure(0, weight=1)
 
         tk.Label(
@@ -162,7 +166,7 @@ class ControlPanel(tk.Frame):
                 lambda p=path: self._on_quick_load(p),
             )
             self._set_disabled_color(quick_button)
-            quick_button.grid(row=idx + 1, column=0, sticky="ew", padx=4, pady=2)
+            quick_button.grid(row=idx + 2, column=0, sticky="ew", padx=4, pady=2)
 
         current_row += 1
         self._add_divider(current_row)
@@ -204,7 +208,11 @@ class ControlPanel(tk.Frame):
         self.selected_puzzle_path_var.set("")
 
     def _show_input_format_popup(self) -> None:
-        messagebox.showinfo("Input File Format", self.INPUT_FORMAT_TEXT)
+        if self.on_show_info is not None:
+            self.on_show_info("Input File Format", self.INPUT_FORMAT_TEXT)
+            return
+        # Fallback: print to console if no callback is wired
+        print(self.INPUT_FORMAT_TEXT)
 
     def _on_quick_load(self, path: str) -> None:
         base_dir = Path(__file__).resolve().parent.parent

@@ -2,7 +2,6 @@
 
 from collections.abc import Callable
 import tkinter as tk
-from tkinter import messagebox
 from typing import Any
 
 from .theme import (
@@ -18,15 +17,22 @@ from .theme import (
     PLAYER_COLOR,
     SELECTED_RING,
     THEME,
-    get_cell_font,
     make_button,
     mono_font,
+    bind_continuous_grid,
+    get_cell_font,
+    BTN_FILL,
+    SHADOW,
 )
 
 
 GAP = 20
 PADDING = 20
 BACKGROUND_PATTERN_SPACING = 15
+TARGET_GRID_N = 9
+TARGET_GRID_PIXEL_SIZE = (THEME[TARGET_GRID_N]["cell_size"] * TARGET_GRID_N) + (
+    max(TARGET_GRID_N - 1, 0) * GAP
+)
 
 
 def check_cell_valid(
@@ -126,15 +132,17 @@ class FutoshikiGrid(tk.Canvas):
         h_constraints: list[list[str]] | None,
         v_constraints: list[list[str]] | None,
         get_input_mode: Callable[[], str] | None = None,
+        on_solved: Callable[[], None] | None = None,
         **kwargs: Any,
     ) -> None:
         """Initialize the board canvas with size, values, and constraints."""
         self.N = N
         self.theme = THEME.get(N, THEME[9])
-        self.cell_size = self.theme["cell_size"]
+        fixed_gap_total = max(self.N - 1, 0) * GAP
+        self.cell_size = (TARGET_GRID_PIXEL_SIZE - fixed_gap_total) / self.N
         self.gap = GAP
         self.padding = PADDING
-        self.grid_pixel_size = self.N * self.cell_size + max(self.N - 1, 0) * self.gap
+        self.grid_pixel_size = TARGET_GRID_PIXEL_SIZE
         self.base_canvas_size = self.grid_pixel_size + (2 * self.padding)
         self._board_origin_x = self.padding
         self._board_origin_y = self.padding
@@ -162,6 +170,7 @@ class FutoshikiGrid(tk.Canvas):
         self._solved_announced = False
         self.keyboard_input_enabled = False
         self._get_input_mode = get_input_mode or (lambda: "keyboard")
+        self._on_solved = on_solved
         self._input_popup: tk.Toplevel | None = None
 
         self._cell_items: dict[tuple[int, int], int] = {}
@@ -172,6 +181,8 @@ class FutoshikiGrid(tk.Canvas):
         self.bind("<Key>", self._on_key_press)
         self.bind("<Configure>", self._on_canvas_resize)
         self.configure(takefocus=1)
+        
+        bind_continuous_grid(self)
         self.redraw()
 
     def _canvas_dimensions(self) -> tuple[int, int]:
@@ -207,8 +218,8 @@ class FutoshikiGrid(tk.Canvas):
             return None
 
         step = self.cell_size + self.gap
-        j = local_x // step
-        i = local_y // step
+        j = int(local_x // step)
+        i = int(local_y // step)
 
         if not self._in_bounds(i, j):
             return None
@@ -275,23 +286,47 @@ class FutoshikiGrid(tk.Canvas):
     def redraw(self) -> None:
         """Render cells, values, and constraints from current widget state."""
         self._update_board_origin()
-        self.delete("all")
+        
+        # Don't delete bg_grid lines drawn by bind_continuous_grid
+        for item in self.find_all():
+            if "bg_grid" not in self.gettags(item):
+                self.delete(item)
+                
         self._cell_items.clear()
         self._value_items.clear()
 
-        self._draw_background_pattern()
+        self._draw_board_background()
         self._draw_cells()
         self._draw_inequalities()
         self._draw_values()
         self._draw_outer_border()
 
-    def _draw_background_pattern(self) -> None:
-        canvas_w, canvas_h = self._canvas_dimensions()
-        spacing = BACKGROUND_PATTERN_SPACING
-        for x in range(0, canvas_w + 1, spacing):
-            self.create_line(x, 0, x, canvas_h, fill=GRID_PATTERN_COLOR, width=1)
-        for y in range(0, canvas_h + 1, spacing):
-            self.create_line(0, y, canvas_w, y, fill=GRID_PATTERN_COLOR, width=1)
+    def _draw_board_background(self) -> None:
+        x1 = self._board_origin_x
+        y1 = self._board_origin_y
+        x2 = x1 + self.grid_pixel_size
+        y2 = y1 + self.grid_pixel_size
+        
+        # Neo-brutalist drop shadow for the entire board
+        shadow_offset = 6
+        self.create_rectangle(
+            x1 + shadow_offset, 
+            y1 + shadow_offset, 
+            x2 + shadow_offset, 
+            y2 + shadow_offset, 
+            fill=SHADOW, 
+            outline="",
+        )
+        
+        # Solid white background for the board zone
+        self.create_rectangle(
+            x1, 
+            y1, 
+            x2, 
+            y2, 
+            fill=BTN_FILL, 
+            outline="",
+        )
 
     def _draw_cells(self) -> None:
         for i in range(self.N):
@@ -312,7 +347,7 @@ class FutoshikiGrid(tk.Canvas):
                 self._cell_items[(i, j)] = item_id
 
     def _cell_style(self, i: int, j: int) -> tuple[str, str, int]:
-        fill = BG
+        fill = BTN_FILL
         outline = GRID_LINE
         width = 1
 
@@ -320,12 +355,11 @@ class FutoshikiGrid(tk.Canvas):
             fill = PANEL_BG
             outline = BORDER
             width = 1
-
-        mode = self.value_modes.get((i, j))
-        if mode == "error":
-            fill = BG
-            outline = ERROR_COLOR
-            width = 2
+        elif self.board[i][j] is not None:
+            if not check_cell_valid(self.board, i, j, self.h_constraints, self.v_constraints, self.N):
+                fill = BTN_FILL
+                outline = ERROR_COLOR
+                width = 2
 
         if self.selected_cell == (i, j):
             outline = SELECTED_RING
@@ -395,7 +429,8 @@ class FutoshikiGrid(tk.Canvas):
         y1 = self._board_origin_y
         x2 = x1 + self.grid_pixel_size
         y2 = y1 + self.grid_pixel_size
-        self.create_rectangle(x1, y1, x2, y2, outline=BORDER, width=2, fill="")
+        # Neo-brutalist thick border
+        self.create_rectangle(x1, y1, x2, y2, outline=BORDER, width=4, fill="")
 
     def _value_font(self, i: int, j: int) -> tuple:
         base = get_cell_font(self.N, self)
@@ -414,11 +449,14 @@ class FutoshikiGrid(tk.Canvas):
         if (i, j) in self.given_cells:
             return GIVEN_COLOR
 
+        if self.board[i][j] is not None:
+            if not check_cell_valid(self.board, i, j, self.h_constraints, self.v_constraints, self.N):
+                return ERROR_COLOR
+
         mode = self.value_modes.get((i, j), "player")
         mode_to_color = {
             "player": PLAYER_COLOR,
             "algo": ALGO_COLOR,
-            "error": ERROR_COLOR,
             "hint": HINT_COLOR,
         }
         return mode_to_color.get(mode, PLAYER_COLOR)
@@ -603,15 +641,7 @@ class FutoshikiGrid(tk.Canvas):
             return
 
         self.board[i][j] = value
-        is_valid = check_cell_valid(
-            self.board,
-            i,
-            j,
-            self.h_constraints,
-            self.v_constraints,
-            self.N,
-        )
-        self.value_modes[(i, j)] = "player" if is_valid else "error"
+        self.value_modes[(i, j)] = "player"
         self.redraw()
         self._check_and_notify_solved()
 
@@ -628,18 +658,7 @@ class FutoshikiGrid(tk.Canvas):
             raise ValueError("mode must be one of: player, algo, error, hint")
 
         self.board[i][j] = v
-        if mode == "player":
-            is_valid = check_cell_valid(
-                self.board,
-                i,
-                j,
-                self.h_constraints,
-                self.v_constraints,
-                self.N,
-            )
-            self.value_modes[(i, j)] = "player" if is_valid else "error"
-        else:
-            self.value_modes[(i, j)] = mode
+        self.value_modes[(i, j)] = mode
         self.redraw()
         self._check_and_notify_solved()
 
@@ -705,8 +724,8 @@ class FutoshikiGrid(tk.Canvas):
         solved = self._is_puzzle_solved()
         if solved and not self._solved_announced:
             self._solved_announced = True
-            messagebox.showinfo("Congratulations", "You solved the Futoshiki puzzle!")
-            # TODO: Expose a completion callback once app-level controllers are added.
+            if self._on_solved is not None:
+                self._on_solved()
         elif not solved:
             self._solved_announced = False
 

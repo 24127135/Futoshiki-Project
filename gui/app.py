@@ -8,10 +8,9 @@ import re
 import sys
 from time import perf_counter
 import tkinter as tk
-from tkinter import messagebox
 
 from .control_panel import ControlPanel
-from .grid_widget import FutoshikiGrid
+from .grid_widget import FutoshikiGrid, GAP, PADDING
 from .solver_generators import SOLVER_GENERATORS, SolverEvent, backtracking_solver_gen
 from .solver_runner import SolverRunner
 from .theme import (
@@ -25,7 +24,9 @@ from .theme import (
     GRID_PATTERN_COLOR,
     make_button,
     mono_font,
+    bind_continuous_grid,
 )
+from .toast import ALGO_ART_FILES, GameToast, load_art_text
 
 try:
     from futoshiki.io_parser import parse_puzzle_text
@@ -49,7 +50,8 @@ class FutoshikiApp(tk.Tk):
 
         self.configure(bg=BG)
         self.title("FUTOSHIKI  —  Logic Puzzle Solver")
-        self.minsize(900, 620)
+        self.resizable(False, False)
+        self._set_window_geometry_centered(900, 620)
 
         self.project_root = Path(__file__).resolve().parent.parent
         self._title_art_text = self._load_title_art_text()
@@ -85,8 +87,11 @@ class FutoshikiApp(tk.Tk):
         self._halt_agent = False
         self._agent_timer_job: str | None = None
         self._agent_start_time: float | None = None
+        self._solver_agent_running = False
+        self._completion_popup: tk.Toplevel | None = None
+        self._toast: GameToast | None = None
 
-        self.AGENT_ALGORITHMS = ("Brute Force", "Backtracking", "Forward Chaining", "Backward Chaining", "A*")
+        self.AGENT_ALGORITHMS = ("Brute Force", "Backtracking", "Forward Chaining", "A*")
         self.selected_algorithm = tk.StringVar(value="Backtracking")
         self._algo_buttons: dict[str, tk.Button] = {}
         self.SPEED_LEVELS = {1: ("Slow", 500), 2: ("Normal", 150), 3: ("Very Fast", 10)}
@@ -99,12 +104,15 @@ class FutoshikiApp(tk.Tk):
         self.input_mode = "cycle"
         self._input_mode_buttons: dict[str, tk.Button] = {}
 
-        self._show_loading_screen(duration_ms=4000)
+        self._show_loading_screen(duration_ms=1500)
 
     def _load_title_art_text(self) -> str:
+        return self._load_art_text("FUTOSHIKI.txt", fallback="FUTOSHIKI")
+
+    def _load_art_text(self, filename: str, fallback: str = "") -> str:
         candidates = (
-            self.project_root / "gui" / "fonts" / "FUTOSHIKI.txt",
-            self.project_root / "FUTOSHIKI.txt",
+            self.project_root / "gui" / "fonts" / filename,
+            self.project_root / filename,
         )
 
         for candidate in candidates:
@@ -112,16 +120,16 @@ class FutoshikiApp(tk.Tk):
                 continue
 
             try:
-                text = candidate.read_text(encoding="utf-8-sig").replace("\r\n", "\n").rstrip("\n")
+                text = candidate.read_text(encoding="utf-8-sig").replace("\r\n", "\n").rstrip()
             except OSError:
                 continue
 
             if text.strip():
                 return text
 
-        return "FUTOSHIKI"
+        return fallback
 
-    def _show_loading_screen(self, duration_ms: int = 4000) -> None:
+    def _show_loading_screen(self, duration_ms: int = 1500) -> None:
         self._loading_canvas = tk.Canvas(
             self,
             bg=BG,
@@ -130,21 +138,23 @@ class FutoshikiApp(tk.Tk):
             relief=tk.FLAT,
         )
         self._loading_canvas.place(relx=0, rely=0, relwidth=1, relheight=1)
+        bind_continuous_grid(self._loading_canvas)
 
-        self.update_idletasks()
-        self._draw_background_pattern(self._loading_canvas)
+        # Force geometry realization so measurements reflect the full window area.
+        self.update()
 
         width = self._loading_canvas.winfo_width()
         height = self._loading_canvas.winfo_height()
         if width <= 1:
-            width = max(900, int(float(self._loading_canvas.cget("width") or 900)))
+            width = max(900, self.winfo_width())
         if height <= 1:
-            height = max(620, int(float(self._loading_canvas.cget("height") or 620)))
+            height = max(620, self.winfo_height())
 
         line_count = self._title_art_text.count("\n") + 1
-        title_font_size = 10 if line_count >= 4 else 12
-        title_y = int(height * 0.45)
-        footer_y = min(height - 40, title_y + int(line_count * title_font_size * 0.75) + 42)
+        title_font_size = max(8, min(14, int(min(width, height) / 70)))
+        if line_count >= 4:
+            title_font_size = max(8, title_font_size - 1)
+        title_y = int(height * 0.5)
 
         self._loading_canvas.create_text(
             width / 2,
@@ -152,15 +162,7 @@ class FutoshikiApp(tk.Tk):
             text=self._title_art_text,
             font=mono_font(self, title_font_size, "bold"),
             fill=BORDER,
-            justify=tk.CENTER,
-        )
-        self._loading_canvas.create_text(
-            width / 2,
-            footer_y,
-            text="Loading...",
-            font=mono_font(self, 11),
-            fill=BORDER,
-            justify=tk.CENTER,
+            justify=tk.LEFT,
         )
 
         self.after(max(1, duration_ms), self._finish_loading_screen)
@@ -172,7 +174,23 @@ class FutoshikiApp(tk.Tk):
 
         self.build_layout()
         self._build_menu()
-        self._show_start_placeholder()
+        self._new_blank_puzzle(9)
+
+    def _fit_window_to_content(self) -> None:
+        """Resize the root window to match current content requirements."""
+        self.update_idletasks()
+        required_width = self.winfo_reqwidth()
+        required_height = self.winfo_reqheight()
+        if required_width > 1 and required_height > 1:
+            self._set_window_geometry_centered(required_width, required_height)
+
+    def _set_window_geometry_centered(self, width: int, height: int) -> None:
+        """Apply geometry and keep the window centered on the current screen."""
+        screen_w = self.winfo_screenwidth()
+        screen_h = self.winfo_screenheight()
+        x = max(0, (screen_w - width) // 2)
+        y = max(0, (screen_h - height) // 2)
+        self.geometry(f"{width}x{height}+{x}+{y}")
 
     def build_layout(self) -> None:
         """Create and place a fixed-header 4-zone grid layout."""
@@ -181,29 +199,34 @@ class FutoshikiApp(tk.Tk):
         self.rowconfigure(0, weight=0, minsize=90)
         self.rowconfigure(1, weight=1)
 
-        self._title_area = tk.Frame(self, bg=BG, width=280, height=90, bd=0, relief=tk.FLAT)
+        self._title_area = tk.Canvas(self, bg=BG, width=280, height=90, bd=0, relief=tk.FLAT, highlightthickness=0)
         self._title_area.grid(row=0, column=0, sticky="nsew")
         self._title_area.grid_propagate(False)
         self._title_area.columnconfigure(0, weight=1)
         self._title_area.rowconfigure(0, weight=1)
+        bind_continuous_grid(self._title_area)
 
-        tk.Label(
-            self._title_area,
-            text=self._title_art_text,
-            font=mono_font(self, 4),
-            fg=BORDER,
-            bg=BG,
-            anchor="center",
-            justify=tk.CENTER,
-            padx=2,
-        ).grid(row=0, column=0, sticky="nsew")
+        def _draw_title(e):
+            self._title_area.delete("title")
+            self._title_area.create_text(
+                e.width / 2, e.height / 2,
+                text=self._title_art_text,
+                font=mono_font(self, 3),
+                fill=BORDER,
+                justify=tk.LEFT,
+                tags="title"
+            )
+            self._title_area.tag_raise("title", "bg_grid")
 
-        self._top_bar_area = tk.Frame(self, bg=BG, height=90, bd=0, relief=tk.FLAT)
+        self._title_area.bind("<Configure>", _draw_title, add="+")
+
+        self._top_bar_area = tk.Canvas(self, bg=BG, height=90, bd=0, relief=tk.FLAT, highlightthickness=0)
         self._top_bar_area.grid(row=0, column=1, sticky="nsew")
         self._top_bar_area.grid_propagate(False)
         self._top_bar_area.columnconfigure(0, weight=1)
         self._top_bar_area.rowconfigure(0, weight=0)
         self._top_bar_area.rowconfigure(1, weight=1)
+        bind_continuous_grid(self._top_bar_area)
 
         self._control_area = tk.Frame(
             self,
@@ -219,28 +242,19 @@ class FutoshikiApp(tk.Tk):
         self._control_area.columnconfigure(0, weight=1)
         self._control_area.rowconfigure(0, weight=1)
 
-        self._grid_area = tk.Frame(
+        self._grid_area = tk.Canvas(
             self,
             bg=BG,
-            padx=16,
-            pady=16,
             bd=0,
             relief=tk.FLAT,
+            highlightthickness=0,
         )
         self._grid_area.grid(row=1, column=1, sticky="nsew")
         self._grid_area.columnconfigure(0, weight=1)
         self._grid_area.rowconfigure(0, weight=1)
+        bind_continuous_grid(self._grid_area)
 
-        self._grid_area_pattern = tk.Canvas(
-            self._grid_area,
-            bg=BG,
-            highlightthickness=0,
-            bd=0,
-            relief=tk.FLAT,
-        )
-        self._grid_area_pattern.place(relx=0, rely=0, relwidth=1, relheight=1)
         self._grid_area.bind("<Configure>", self._on_grid_area_resize)
-        self._draw_background_pattern(self._grid_area_pattern)
 
         self.control_panel = ControlPanel(
             self._control_area,
@@ -251,6 +265,7 @@ class FutoshikiApp(tk.Tk):
             on_speed_change=self._on_speed_change,
             on_manual_toggle=self.on_manual_toggle,
             on_hint=self.on_hint,
+            on_show_info=lambda _title, body: self._show_toast(body, severity="info", auto_dismiss_ms=0),
         )
         self.control_panel.grid(row=0, column=0, sticky="nsew")
         self.control_panel.input_mode_var.set(self.input_mode)
@@ -353,10 +368,12 @@ class FutoshikiApp(tk.Tk):
 
     def on_run_agent(self) -> None:
         if self.grid_widget is None:
-            messagebox.showwarning("Run Agent", "Please load a puzzle first.")
+            self._show_toast("Please load a puzzle first.", severity="warning")
             return
 
+        self._close_completion_popup()
         self._halt_agent = False
+        self._solver_agent_running = True
         self.btn_run_agent.configure(state="disabled")
         self.btn_halt_agent.configure(state="normal")
 
@@ -495,8 +512,10 @@ class FutoshikiApp(tk.Tk):
         lines = self._title_art_text.split("\n")
         text_width = max(measure_font.measure(line) for line in lines) + 40
         text_height = measure_font.metrics("linespace") * len(lines) + 40
-        canvas_w = max(400, text_width)
-        canvas_h = max(400, text_height)
+        default_grid_pixels = (9 * CELL_SIZES[9]) + (max(9 - 1, 0) * GAP)
+        default_board_canvas_size = default_grid_pixels + (2 * PADDING)
+        canvas_w = max(default_board_canvas_size, text_width)
+        canvas_h = max(default_board_canvas_size, text_height)
 
         self._placeholder_canvas = tk.Canvas(
             self._grid_area,
@@ -515,7 +534,7 @@ class FutoshikiApp(tk.Tk):
             text=self._title_art_text,
             font=mono_font(self, 8, "bold"),
             fill=BORDER,
-            justify=tk.CENTER,
+            justify=tk.LEFT,
         )
 
     def bind_events(self) -> None:
@@ -527,12 +546,13 @@ class FutoshikiApp(tk.Tk):
     def on_load(self, filename: str) -> None:
         """Parse a puzzle file and rebuild the grid with the loaded size N."""
         self._cancel_animation()
+        self._close_completion_popup()
 
         try:
             file_path = self._resolve_puzzle_file(filename)
             N, grid, h_constraints, v_constraints = self._parse_puzzle_file(file_path)
         except (OSError, ValueError) as exc:
-            messagebox.showerror("Load Puzzle", str(exc))
+            self._show_toast(str(exc), severity="error")
             return
 
         self.current_N = N
@@ -554,6 +574,7 @@ class FutoshikiApp(tk.Tk):
     def _new_blank_puzzle(self, N: int) -> None:
         self._cancel_animation()
         self._stop_manual_timer()
+        self._close_completion_popup()
 
         self.current_N = N
         self.current_grid = [[0 for _ in range(N)] for _ in range(N)]
@@ -588,7 +609,7 @@ class FutoshikiApp(tk.Tk):
         self._animation_delay_ms = max(1, int(delay_ms))
         self._solver_runner = self._build_solver_runner(algorithm)
         if self._solver_runner is None:
-            messagebox.showerror("Solve", f"Unsupported solver: {algorithm}")
+            self._show_toast(f"Unsupported solver: {algorithm}", severity="error")
             return
         self._start_stats_state()
         self._schedule_next_animation_step()
@@ -606,7 +627,7 @@ class FutoshikiApp(tk.Tk):
             self._solver_algorithm = algorithm
             self._solver_runner = self._build_solver_runner(algorithm)
             if self._solver_runner is None:
-                messagebox.showerror("Step", f"Unsupported solver: {algorithm}")
+                self._show_toast(f"Unsupported solver: {algorithm}", severity="error")
                 return
             self._start_stats_state()
 
@@ -618,6 +639,7 @@ class FutoshikiApp(tk.Tk):
     def on_reset(self) -> None:
         """Restore original clues and remove all player/solver entries."""
         self._cancel_animation()
+        self._close_completion_popup()
         if self._manual_timer_job is not None:
             self.after_cancel(self._manual_timer_job)
             self._manual_timer_job = None
@@ -664,18 +686,18 @@ class FutoshikiApp(tk.Tk):
                 break
 
         if target_cell is None:
-            messagebox.showinfo("Hint", "No empty cells available for a hint.")
+            self._show_toast("No empty cells available for a hint.", severity="info")
             return
 
         solution = self._get_hint_solution()
         if solution is None:
-            messagebox.showerror("Hint", "No valid solution was found for this puzzle.")
+            self._show_toast("No valid solution was found for this puzzle.", severity="error")
             return
 
         i, j = target_cell
         hint_value = solution[i][j]
         if hint_value is None:
-            messagebox.showerror("Hint", "Could not compute a hint value for the selected cell.")
+            self._show_toast("Could not compute a hint value for the selected cell.", severity="error")
             return
 
         self.grid_widget.set_value(i, j, hint_value, mode="hint")
@@ -705,10 +727,12 @@ class FutoshikiApp(tk.Tk):
             h_constraints=copy.deepcopy(self.current_h_constraints),
             v_constraints=copy.deepcopy(self.current_v_constraints),
             get_input_mode=lambda: self.input_mode,
+            on_solved=self._on_grid_solved,
         )
         self.grid_widget.set_keyboard_enabled(self._manual_play_enabled)
         self.grid_widget.pack(expand=True, fill="both")
         tk.Misc.tkraise(self.grid_widget)
+        self._fit_window_to_content()
 
     def _cancel_animation(self) -> None:
         if self._animation_job is not None:
@@ -790,6 +814,46 @@ class FutoshikiApp(tk.Tk):
         # TODO: Handle additional visualization event types if solvers emit richer traces.
         return True
 
+    def _on_grid_solved(self) -> None:
+        if self._solver_agent_running:
+            return
+
+        elapsed = perf_counter() - self._puzzle_loaded_at
+        art = load_art_text(self.project_root, "YOU_WIN.txt", fallback="YOU WIN!")
+        self._show_toast(
+            body=f"You solved the Futoshiki puzzle!\n\nTime Taken: {elapsed:.3f}s",
+            severity="success",
+            art_text=art,
+            auto_dismiss_ms=0,
+        )
+
+    def _close_completion_popup(self) -> None:
+        """Dismiss any active in-game toast overlay."""
+        if self._toast is not None:
+            self._toast.dismiss()
+
+    def _show_toast(
+        self,
+        body: str,
+        severity: str = "info",
+        art_text: str | None = None,
+        auto_dismiss_ms: int = 4000,
+        on_dismiss: object = None,
+    ) -> None:
+        """Show a custom in-game toast notification inside the game board area."""
+        container = self._grid_area if self._grid_area is not None else self
+        if self._toast is None:
+            self._toast = GameToast(self, container=container)
+        else:
+            self._toast.set_container(container)
+        self._toast.show(
+            body=body,
+            severity=severity,
+            art_text=art_text,
+            auto_dismiss_ms=auto_dismiss_ms,
+            on_dismiss=on_dismiss,
+        )
+
     def _start_stats_state(self) -> None:
         self._solve_start_time = perf_counter()
         self._recursive_calls = 0
@@ -801,6 +865,7 @@ class FutoshikiApp(tk.Tk):
         self._cancel_animation()
         self._update_stats_view()
         self._stop_agent_timer()
+        self._solver_agent_running = False
         
         if hasattr(self, 'btn_run_agent'):
             self.btn_run_agent.configure(state="normal")
@@ -808,9 +873,18 @@ class FutoshikiApp(tk.Tk):
 
         if not halted and self._solve_start_time is not None:
             elapsed = perf_counter() - self._solve_start_time
-            messagebox.showinfo(
-                "Solver Agent Finished!",
-                f"Solver Agent Finished!\n\nTotal Time Taken: {elapsed:.3f}s\nNodes Expanded: {self._nodes_expanded}"
+            # Pick the algorithm-specific ASCII art file
+            algo_name = self._solver_algorithm or "Backtracking"
+            art_file = ALGO_ART_FILES.get(algo_name, "BACKTRACKING_FINISHED.txt")
+            art = load_art_text(self.project_root, art_file, fallback=f"{algo_name} Finished!")
+            self._show_toast(
+                body=(
+                    f"Total Time Taken: {elapsed:.3f}s\n"
+                    f"Nodes Expanded: {self._nodes_expanded}"
+                ),
+                severity="success",
+                art_text=art,
+                auto_dismiss_ms=0,
             )
 
     def _reset_stats_state(self) -> None:
