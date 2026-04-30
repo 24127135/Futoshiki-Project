@@ -57,7 +57,7 @@ src/
 - **docs/** - Technical documentation (including A* admissibility proof)
 - **inputs/** - Test puzzles (4x4 to 9x9)
 - **solutions/** - Reference solutions for validation
-- **Output/** - Generated Knowledge Base outputs
+- **outputs/** - Generated Knowledge Base outputs
 
 ## Input Format
 
@@ -128,7 +128,7 @@ python src/tools/forward_pruning_smoke.py --strict
 python src/tools/export_kb_outputs.py
 ```
 
-Generates Knowledge Base summaries and CNF clause dumps for all puzzles in `Output/`.
+Generates Knowledge Base summaries and CNF clause dumps for all puzzles in `outputs/`.
 
 ### Launch GUI
 
@@ -164,7 +164,7 @@ The benchmark suite includes 10 test cases:
 Test files follow naming conventions:
 - **Input**: `inputs/input-{N}x{N}-{ID:02d}.txt`
 - **Solution**: `solutions/solution-{N}x{N}-{ID:02d}.txt`
-- **KB Output**: `Output/kb-input-{N}x{N}-{ID:02d}.txt`
+- **KB Output**: `outputs/output-{N}x{N}-{ID:02d}.txt`
 
 ## Documentation
 

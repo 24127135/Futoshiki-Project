@@ -72,7 +72,7 @@ def export_kb_for_input(
     kb.build_full_kb(puzzle.grid, puzzle.horizontal, puzzle.vertical)
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_file = output_dir / f"kb-{input_file.stem}.txt"
+    output_file = output_dir / f"{input_file.stem.replace('input-', 'output-', 1)}.txt"
     output_file.write_text(_build_report_text(input_file, kb, max_clauses), encoding="utf-8")
     return output_file
 
@@ -90,8 +90,8 @@ def main() -> None:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("Output"),
-        help="Directory where KB output reports are written",
+        default=Path("outputs"),
+        help="Directory where output reports are written",
     )
     parser.add_argument(
         "--max-clauses",

@@ -979,8 +979,6 @@ class FutoshikiApp(tk.Tk):
                 self.project_root / requested,
                 self.project_root / "inputs" / requested,
                 self.project_root / "inputs" / requested.name,
-                self.project_root / "puzzle_inputs" / "Inputs" / requested,
-                self.project_root / "puzzle_inputs" / "Inputs" / requested.name,
                 self.project_root / "puzzles" / requested,
                 Path.cwd() / requested,
             )
